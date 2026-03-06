@@ -390,22 +390,22 @@ export default function Products() {
                         {p.review_count > 0 && <span className="text-[10px] text-muted-foreground">({p.review_count})</span>}
                       </div>
                     )}
-                    {/* Flipkart-style Pricing */}
+                    {/* Pricing */}
                     {(() => {
                       const pricing = getPricingInfo(p.price, p.compare_price);
                       return (
-                        <div>
-                          <div className="flex items-center gap-3 mb-1">
-                            <span className="font-medium text-lg text-primary">{formatPrice(p.price)}</span>
+                        <div className="space-y-1">
+                          <div className="flex items-baseline justify-between gap-1.5">
+                            <span className="font-semibold text-base sm:text-lg text-primary leading-none">{formatPrice(p.price)}</span>
                             {pricing.hasDiscount && (
-                              <>
-                                <span className="text-sm text-muted-foreground line-through">{formatPrice(pricing.comparePrice)}</span>
-                                <Badge className="bg-green-100 hover:bg-green-100 text-green-800 text-xs font-bold border-0 px-2 py-0.5">
-                                  {pricing.discountPercent}% OFF
-                                </Badge>
-                              </>
+                              <Badge className="bg-green-100 hover:bg-green-100 text-green-800 text-[10px] sm:text-xs font-bold border-0 px-1.5 sm:px-2 py-0.5 flex-shrink-0 whitespace-nowrap">
+                                {pricing.discountPercent}% OFF
+                              </Badge>
                             )}
                           </div>
+                          {pricing.hasDiscount && (
+                            <span className="text-xs sm:text-sm text-muted-foreground line-through leading-none">{formatPrice(pricing.comparePrice)}</span>
+                          )}
                         </div>
                       );
                     })()}

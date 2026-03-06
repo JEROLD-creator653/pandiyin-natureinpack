@@ -312,7 +312,10 @@ export default function Navbar() {
 
           {/* Center: Logo */}
           <Link to="/" className="flex-1 flex justify-center mx-1 min-w-0">
-            <span className="text-base sm:text-lg font-display font-bold text-primary truncate">PANDIYIN</span>
+            <div className="flex flex-col items-center leading-none">
+              <span className="text-base sm:text-lg font-display font-bold text-primary">PANDIYIN</span>
+              <span className="text-[9px] sm:text-[10px] tracking-[0.15em] text-muted-foreground font-medium -mt-0.5">Nature In Pack</span>
+            </div>
           </Link>
 
           {/* Right: Search + Cart */}
