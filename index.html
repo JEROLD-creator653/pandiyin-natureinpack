@@ -3,27 +3,104 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="google-site-verification" content="LSdJmQ3vE4dpXjZRM_dqb0zzg5zZlhzXDh238PqEoxc" />
     <title>PANDIYIN - Nature In Pack | Homemade Foods from Madurai</title>
-    <meta name="description" content="Authentic homemade foods from Madurai. Traditional pickles, snacks, spice powders, and sweets. 100% natural, no preservatives." />
+    <meta name="description" content="Authentic homemade foods from Madurai. Traditional pickles, snacks, spice powders, and sweets. 100% natural, no preservatives. Free shipping above ₹799." />
     <meta name="author" content="PANDIYIN" />
-    <meta property="og:title" content="PANDIYIN - Nature In Pack" />
-    <meta property="og:description" content="Authentic homemade foods from Madurai. 100% natural, no preservatives." />
+    <meta name="theme-color" content="#2d6a4f" />
+    <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1" />
+    <link rel="canonical" href="https://pandiyin-natureinpack.vercel.app/" />
+
+    <meta property="og:title" content="PANDIYIN - Nature In Pack | Homemade Foods from Madurai" />
+    <meta property="og:description" content="Authentic homemade foods from Madurai. 100% natural, no preservatives. Free shipping above ₹799." />
     <meta property="og:type" content="website" />
-    <meta property="og:image" content="https://lovable.dev/opengraph-image-p98pqg.png" />
+    <meta property="og:url" content="https://pandiyin-natureinpack.vercel.app/" />
+    <meta property="og:site_name" content="PANDIYIN - Nature In Pack" />
+    <meta property="og:locale" content="en_IN" />
+    <meta property="og:image" content="https://pandiyin-natureinpack.vercel.app/logo.ico" />
 
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:site" content="@Lovable" />
-    <meta name="twitter:image" content="https://lovable.dev/opengraph-image-p98pqg.png" />
+    <meta name="twitter:title" content="PANDIYIN - Nature In Pack" />
+    <meta name="twitter:description" content="Authentic homemade foods from Madurai. 100% natural, no preservatives." />
+    <meta name="twitter:image" content="https://pandiyin-natureinpack.vercel.app/logo.ico" />
+
+    <!-- Preconnect to Supabase storage for faster banner image loading -->
+    <link rel="preload" href="/logo.ico" as="image" />
+    <link rel="preload" href="/auth-bg.webp" as="image" />
+    <link rel="preconnect" href="https://adgihdeigquuoozmvfai.supabase.co" crossorigin />
+    <link rel="dns-prefetch" href="https://adgihdeigquuoozmvfai.supabase.co" />
+
+    <!-- Preload login background for instant render -->
+    <link rel="preload" as="image" href="/auth-bg.webp" type="image/webp" />
+
+    <!-- Inline script: preload cached hero banner before React loads -->
+    <script>
+      (function() {
+        try {
+          var cached = localStorage.getItem('hero_banner_url');
+          if (cached) {
+            // 1. Create <link rel="preload"> for maximum browser priority
+            var link = document.createElement('link');
+            link.rel = 'preload';
+            link.as = 'image';
+            link.href = cached;
+            link.type = 'image/webp';
+            link.fetchPriority = 'high';
+            document.head.appendChild(link);
+            
+            // 2. Start actual download via Image object (belt + suspenders)
+            var img = new window.Image();
+            img.src = cached;
+            window.__earlyHeroBanner = img;
+            
+            // 3. If we have cached banner data, render the image into the placeholder
+            var bannerData = localStorage.getItem('hero_banners_data');
+            if (bannerData) {
+              var banners = JSON.parse(bannerData);
+              if (banners && banners.length > 0 && banners[0].image_url) {
+                var placeholder = document.getElementById('static-hero-placeholder');
+                if (placeholder) {
+                  // Replace shimmer with actual cached banner image
+                  placeholder.style.backgroundImage = 'url(' + banners[0].image_url + ')';
+                  placeholder.style.backgroundSize = 'cover';
+                  placeholder.style.backgroundPosition = 'center';
+                  placeholder.style.animation = 'none';
+                }
+              }
+            }
+          }
+        } catch(e) {}
+      })();
+    </script>
+
     <style>
       html, body, #root {
         height: 100%;
         background-color: hsl(var(--background));
       }
+      /* Hero banner placeholder - prevents layout shift */
+      .hero-banner-placeholder {
+        width: 100%;
+        height: 400px;
+        background: linear-gradient(135deg, #f5f5f5 25%, #e8e8e8 50%, #f5f5f5 75%);
+        background-size: 200% 100%;
+        animation: shimmer 1.5s infinite;
+      }
+      @media (min-width: 768px) { .hero-banner-placeholder { height: 500px; } }
+      @media (min-width: 1024px) { .hero-banner-placeholder { height: 600px; } }
+      @keyframes shimmer {
+        0% { background-position: 200% 0; }
+        100% { background-position: -200% 0; }
+      }
     </style>
   </head>
 
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <!-- Static placeholder shown until React hydrates - prevents layout shift -->
+      <div class="hero-banner-placeholder" id="static-hero-placeholder"></div>
+    </div>
+    <script src="https://checkout.razorpay.com/v1/checkout.js" defer></script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

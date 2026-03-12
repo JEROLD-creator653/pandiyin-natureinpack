@@ -1,8 +1,25 @@
 import { Link } from "react-router-dom";
 import { Leaf, Mail, Phone, Instagram } from "lucide-react";
 import { FaWhatsapp } from "react-icons/fa";
+import { useEffect, useState } from "react";
+import { supabase } from "@/integrations/supabase/client";
+import { useStoreSettings } from "@/hooks/useStoreSettings";
 
 export default function Footer() {
+  const { data: store, isLoading: loadingStore } = useStoreSettings();
+  const whatsappNumber = store?.whatsapp?.replace(/\D/g, '') || '';
+  const phoneNumber = store?.phone?.replace(/\D/g, '') || '';
+  const [categories, setCategories] = useState<{ id: string; name: string }[]>([]);
+
+  useEffect(() => {
+    supabase
+      .from("categories")
+      .select("id, name")
+      .order("sort_order")
+      .then(({ data }) => {
+        if (data) setCategories(data);
+      });
+  }, []);
   return (
     <footer id="footer" className="bg-foreground text-primary-foreground pt-12 pb-6">
       <div className="container mx-auto px-4">
@@ -26,12 +43,8 @@ export default function Footer() {
 
             <div className="space-y-1">
               <h3 className="text-sm font-semibold">Address</h3>
-              <p className="text-sm opacity-80 leading-relaxed">
-                802, VPM House,<br />
-                Mandhaikaliamman Kovil Street,<br />
-                Krishnapuram Road,<br />
-                M. Kallupatti,<br />
-                Madurai District - 625535.
+              <p className="text-sm opacity-80 leading-relaxed whitespace-pre-line">
+                {loadingStore ? '...' : (store?.address || 'Madurai, Tamil Nadu, India')}
               </p>
             </div>
           </div>
@@ -76,33 +89,15 @@ export default function Footer() {
             <h4 className="font-display font-semibold">Categories</h4>
 
             <div className="flex flex-col gap-2 text-sm opacity-80">
-              <Link
-                to="/products?category=Pickles"
-                className="inline-block w-fit hover:opacity-100 transition-opacity"
-              >
-                Pickles
-              </Link>
-
-              <Link
-                to="/products?category=Snacks"
-                className="inline-block w-fit hover:opacity-100 transition-opacity"
-              >
-                Snacks
-              </Link>
-
-              <Link
-                to="/products?category=Spice Powders"
-                className="inline-block w-fit hover:opacity-100 transition-opacity"
-              >
-                Spice Powders
-              </Link>
-
-              <Link
-                to="/products?category=Sweets"
-                className="inline-block w-fit hover:opacity-100 transition-opacity"
-              >
-                Sweets
-              </Link>
+              {categories.map((cat) => (
+                <Link
+                  key={cat.id}
+                  to={`/products?category=${encodeURIComponent(cat.name)}`}
+                  className="inline-block w-fit hover:opacity-100 transition-opacity"
+                >
+                  {cat.name}
+                </Link>
+              ))}
             </div>
           </div>
 
@@ -174,7 +169,7 @@ export default function Footer() {
 
               {/* WhatsApp */}
               <a
-                href="https://wa.me/916383709933"
+                href={`https://wa.me/${whatsappNumber}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 aria-label="WhatsApp"
@@ -187,7 +182,7 @@ export default function Footer() {
 
               {/* Phone */}
               <a
-                href="tel:+916383709933"
+                href={`tel:+${phoneNumber}`}
                 aria-label="Phone"
                 className="h-12 w-12 rounded-full border border-primary-foreground/50 flex items-center justify-center 
                            hover:bg-primary-foreground hover:text-foreground hover:scale-110 
@@ -198,7 +193,7 @@ export default function Footer() {
 
               {/* Mail */}
               <a
-                href="mailto:pandiyinnatureinpack@gmail.com"
+                href={loadingStore ? '#' : `mailto:${store?.email || 'pandiyinnatureinpack@gmail.com'}`}
                 aria-label="Email"
                 className="h-12 w-12 rounded-full border border-primary-foreground/50 flex items-center justify-center 
                            hover:bg-primary-foreground hover:text-foreground hover:scale-110 

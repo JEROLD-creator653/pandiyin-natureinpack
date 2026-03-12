@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useRef } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
@@ -20,6 +20,7 @@ import { useCart } from '@/hooks/useCart';
 import { SkeletonCard } from '@/components/ui/loader';
 import { getCachedData, setCacheItem } from '@/lib/cacheService';
 import { useRouteLoader } from '@/contexts/RouteLoaderContext';
+import SEOHead from '@/components/SEOHead';
 
 type SortOption = 'newest' | 'price_low' | 'price_high' | 'popularity';
 
@@ -47,6 +48,13 @@ export default function Products() {
     const cat = searchParams.get('category');
     return cat ? [cat] : [];
   });
+  // Sync selectedCategories when the URL category param changes
+  const urlCategory = searchParams.get('category');
+  useEffect(() => {
+    setSelectedCategories(urlCategory ? [urlCategory] : []);
+    window.scrollTo(0, 0);
+  }, [urlCategory]);
+
   const [priceRange, setPriceRange] = useState<[number, number]>([0, 5000]);
   const [manualMin, setManualMin] = useState('');
   const [manualMax, setManualMax] = useState('');
@@ -55,6 +63,50 @@ export default function Products() {
   const [filterOpen, setFilterOpen] = useState(false);
   const [maxPrice, setMaxPrice] = useState(5000);
   const [searchInput, setSearchInput] = useState('');
+  const [searchSuggestions, setSearchSuggestions] = useState<any[]>([]);
+  const [showSearchSuggestions, setShowSearchSuggestions] = useState(false);
+  const [isLoadingSearchSuggestions, setIsLoadingSearchSuggestions] = useState(false);
+  const searchDebounceRef = useRef<ReturnType<typeof setTimeout>>();
+  const searchContainerRef = useRef<HTMLDivElement>(null);
+
+  // Live search suggestions for mobile search bar
+  useEffect(() => {
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+
+    if (searchInput.trim().length >= 2) {
+      setIsLoadingSearchSuggestions(true);
+      searchDebounceRef.current = setTimeout(async () => {
+        const { data } = await supabase
+          .from('products')
+          .select('id, name, price, compare_price, image_url, categories(name)')
+          .eq('is_available', true)
+          .ilike('name', `%${searchInput.trim()}%`)
+          .limit(6);
+        setSearchSuggestions(data || []);
+        setIsLoadingSearchSuggestions(false);
+        setShowSearchSuggestions(true);
+      }, 200);
+    } else {
+      setSearchSuggestions([]);
+      setShowSearchSuggestions(false);
+      setIsLoadingSearchSuggestions(false);
+    }
+
+    return () => {
+      if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    };
+  }, [searchInput]);
+
+  // Close suggestions on outside click
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (searchContainerRef.current && !searchContainerRef.current.contains(event.target as Node)) {
+        setShowSearchSuggestions(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   const handleAddToCart = async (productId: string) => {
     setAddingItems(prev => new Set(prev).add(productId));
@@ -100,30 +152,20 @@ export default function Products() {
     
     const loadProducts = async () => {
       try {
-        // Use cache service to avoid refetching same products
-        const cacheKey = `products:${searchFilter}`;
+        let query = supabase
+          .from('products')
+          .select('*, categories(name)')
+          .eq('is_available', true);
         
-        const data = await getCachedData(
-          cacheKey,
-          async () => {
-            let query = supabase
-              .from('products')
-              .select('*, categories(name)')
-              .eq('is_available', true);
-            
-            if (searchFilter) {
-              query = query.ilike('name', `%${searchFilter}%`);
-            }
-            
-            const { data, error } = await query.order('created_at', { 
-              ascending: false 
-            });
-            
-            if (error) throw error;
-            return data || [];
-          },
-          60 * 60 * 1000 // Cache for 1 hour
-        );
+        if (searchFilter) {
+          query = query.ilike('name', `%${searchFilter}%`);
+        }
+        
+        const { data, error } = await query.order('created_at', { 
+          ascending: false 
+        });
+        
+        if (error) throw error;
         
         // CRITICAL: End loading screen as soon as products are ready
         // This is the early exit - don't wait for sorting/filtering
@@ -204,14 +246,89 @@ export default function Products() {
   };
 
   return (
-    <div className="container mx-auto px-4 pt-24 pb-8">
-      {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
-        <h1 className="text-3xl font-display font-bold">All Products</h1>
-        <form onSubmit={e => { e.preventDefault(); setSearchParams(s => { if (searchInput) s.set('search', searchInput); else s.delete('search'); return s; }); }} className="relative max-w-sm w-full md:hidden">
-          <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-          <Input placeholder="Search products..." value={searchInput} onChange={e => setSearchInput(e.target.value)} className="pl-9" />
-        </form>
+    <div className="container mx-auto px-4 pt-20 md:pt-24 pb-8">
+      <SEOHead
+        title={searchFilter ? `Search: ${searchFilter} - Products` : 'All Products - PANDIYIN'}
+        description="Browse our collection of authentic homemade foods from Madurai. Traditional pickles, snacks, spice powders. 100% natural, no preservatives."
+      />
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 md:gap-4 mb-5 md:mb-6">
+        <h1 className="text-2xl md:text-3xl font-display font-bold">All Products</h1>
+        <div ref={searchContainerRef} className="relative max-w-sm w-full md:hidden">
+          <form onSubmit={e => { e.preventDefault(); setShowSearchSuggestions(false); setSearchParams(s => { if (searchInput) s.set('search', searchInput); else s.delete('search'); return s; }); }}>
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground z-10" />
+            <Input
+              placeholder="Search products..."
+              value={searchInput}
+              onChange={e => setSearchInput(e.target.value)}
+              onFocus={() => searchInput.trim().length >= 2 && setShowSearchSuggestions(true)}
+              className="pl-9 pr-9 h-10 rounded-full bg-secondary/50 border-0 focus-visible:ring-1 focus-visible:ring-primary/30"
+              autoComplete="off"
+            />
+            {searchInput && (
+              <button
+                type="button"
+                onClick={() => { setSearchInput(''); setShowSearchSuggestions(false); setSearchParams(s => { s.delete('search'); return s; }); }}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors z-10"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            )}
+          </form>
+
+          {/* Suggestions dropdown */}
+          <AnimatePresence>
+            {showSearchSuggestions && searchInput.trim().length >= 2 && (
+              <motion.div
+                initial={{ opacity: 0, y: -8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -8 }}
+                transition={{ duration: 0.15 }}
+                className="absolute top-full mt-2 left-0 right-0 bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden z-50 max-h-[320px] overflow-y-auto"
+              >
+                {isLoadingSearchSuggestions ? (
+                  <div className="p-4 text-center text-sm text-muted-foreground">Searching...</div>
+                ) : searchSuggestions.length > 0 ? (
+                  <>
+                    {searchSuggestions.map((product) => (
+                      <button
+                        key={product.id}
+                        type="button"
+                        onClick={() => { setShowSearchSuggestions(false); navigate(`/products/${product.id}`); }}
+                        className="w-full p-3 flex items-center gap-3 hover:bg-slate-50 transition-colors text-left border-b border-gray-100 last:border-0"
+                      >
+                        <div className="w-10 h-10 rounded-md bg-muted flex-shrink-0 overflow-hidden flex items-center justify-center">
+                          {product.image_url ? (
+                            <img src={product.image_url} alt={product.name} className="w-full h-full object-cover" />
+                          ) : (
+                            <Leaf className="h-4 w-4 text-muted-foreground/30" />
+                          )}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-medium text-foreground truncate">{product.name}</p>
+                          {product.categories?.name && (
+                            <p className="text-[10px] text-muted-foreground truncate">{product.categories.name}</p>
+                          )}
+                        </div>
+                        <span className="text-xs font-semibold text-foreground flex-shrink-0">
+                          {formatPrice(product.price)}
+                        </span>
+                      </button>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={() => { setShowSearchSuggestions(false); setSearchParams(s => { if (searchInput) s.set('search', searchInput); else s.delete('search'); return s; }); }}
+                      className="w-full p-3 flex items-center justify-center gap-2 bg-slate-50 hover:bg-slate-100 transition-colors text-primary border-t border-gray-200 font-medium text-xs"
+                    >
+                      View all results
+                    </button>
+                  </>
+                ) : (
+                  <div className="p-4 text-center text-sm text-muted-foreground">No products found</div>
+                )}
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
       </div>
 
       {/* Toolbar: Sort + Filter */}
@@ -365,27 +482,27 @@ export default function Products() {
             <motion.div key={p.id} initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.03 }} className="h-full">
               <Link to={`/products/${p.id}`} className="h-full block">
                 <Card className="overflow-hidden hover:shadow-lg transition-shadow group h-full flex flex-col border-0 shadow-sm">
-                  <div className="h-52 md:h-56 lg:h-64 w-full bg-muted flex items-center justify-center overflow-hidden relative">
+                  <div className="h-40 md:h-56 lg:h-64 w-full bg-muted flex items-center justify-center overflow-hidden relative">
                     {p.image_url ? (
                       <img src={p.image_url} alt={p.name} className="w-full h-full object-cover object-center rounded-lg group-hover:scale-105 transition-transform duration-500" loading="lazy" />
                     ) : (
                       <Leaf className="h-12 w-12 text-muted-foreground/30" />
                     )}
                     {p.stock_quantity <= 5 && p.stock_quantity > 0 && (
-                      <Badge className="absolute top-2 right-2 bg-amber-500 hover:bg-amber-600 text-white text-xs border-0 shadow-sm">Few Left</Badge>
+                      <Badge className="absolute top-2 right-2 bg-amber-500 hover:bg-amber-600 text-white text-[10px] md:text-xs border-0 shadow-sm">Few Left</Badge>
                     )}
                     {p.stock_quantity === 0 && (
-                      <Badge variant="destructive" className="absolute top-2 right-2 text-xs border-0 shadow-sm">Out of Stock</Badge>
+                      <Badge variant="destructive" className="absolute top-2 right-2 text-[10px] md:text-xs border-0 shadow-sm">Out of Stock</Badge>
                     )}
                   </div>
-                  <CardContent className="p-4 flex-1 flex flex-col">
-                    <p className="text-xs text-muted-foreground mb-0.5">{(p as any).categories?.name}</p>
-                    <h3 className="font-semibold text-base font-sans line-clamp-2 mb-1.5 leading-tight group-hover:text-primary transition-colors">{p.name}</h3>
-                    {p.weight && <p className="text-xs text-muted-foreground mb-1">{p.weight}{p.unit ? ` ${p.unit}` : ''}</p>}
+                  <CardContent className="p-3 md:p-4 flex-1 flex flex-col">
+                    <p className="text-[10px] md:text-xs text-muted-foreground mb-0.5">{(p as any).categories?.name}</p>
+                    <h3 className="font-semibold text-sm md:text-base font-sans line-clamp-2 mb-1 md:mb-1.5 leading-tight group-hover:text-primary transition-colors">{p.name}</h3>
+                    {p.weight && <p className="text-[10px] md:text-xs text-muted-foreground mb-1">{p.weight}{p.unit ? ` ${p.unit}` : ''}</p>}
                     {Number(p.average_rating) > 0 && (
                       <div className="flex items-center gap-1.5 mb-2">
-                        <span className="inline-flex items-center gap-0.5 bg-primary/10 text-primary text-xs font-semibold px-1.5 py-0.5 rounded">
-                          {Number(p.average_rating).toFixed(1)} <Star className="h-2.5 w-2.5 fill-current" />
+                        <span className="inline-flex items-center gap-0.5 bg-primary/10 text-primary text-sm sm:text-xs font-semibold px-2 sm:px-1.5 py-0.5 rounded">
+                          {Number(p.average_rating).toFixed(1)} <Star className="h-3 w-3 sm:h-2.5 sm:w-2.5 fill-current" />
                         </span>
                         {p.review_count > 0 && <span className="text-[10px] text-muted-foreground">({p.review_count})</span>}
                       </div>
@@ -396,15 +513,15 @@ export default function Products() {
                       return (
                         <div className="space-y-1">
                           <div className="flex items-baseline justify-between gap-1.5">
-                            <span className="font-semibold text-base sm:text-lg text-primary leading-none">{formatPrice(p.price)}</span>
+                            <span className="font-semibold text-lg sm:text-lg text-primary leading-none">{formatPrice(p.price)}</span>
                             {pricing.hasDiscount && (
-                              <Badge className="bg-green-100 hover:bg-green-100 text-green-800 text-[10px] sm:text-xs font-bold border-0 px-1.5 sm:px-2 py-0.5 flex-shrink-0 whitespace-nowrap">
+                              <Badge className="bg-green-100 hover:bg-green-100 text-green-800 text-xs sm:text-xs font-bold border-0 px-2 sm:px-2 py-0.5 flex-shrink-0 whitespace-nowrap">
                                 {pricing.discountPercent}% OFF
                               </Badge>
                             )}
                           </div>
                           {pricing.hasDiscount && (
-                            <span className="text-xs sm:text-sm text-muted-foreground line-through leading-none">{formatPrice(pricing.comparePrice)}</span>
+                            <span className="text-sm sm:text-sm text-muted-foreground line-through leading-none">{formatPrice(pricing.comparePrice)}</span>
                           )}
                         </div>
                       );

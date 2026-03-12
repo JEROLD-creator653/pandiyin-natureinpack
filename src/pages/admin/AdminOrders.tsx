@@ -1,31 +1,25 @@
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { ChevronRight, Leaf, Search } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { motion } from 'framer-motion';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from '@/hooks/use-toast';
 import { formatPrice } from '@/lib/formatters';
 import { TableSkeleton } from '@/components/ui/loader';
 
 const statuses = ['pending', 'confirmed', 'processing', 'shipped', 'delivered', 'cancelled'];
-const statusColors: Record<string, string> = {
-  pending: 'bg-yellow-100 text-yellow-800', confirmed: 'bg-blue-100 text-blue-800',
-  processing: 'bg-purple-100 text-purple-800', shipped: 'bg-indigo-100 text-indigo-800',
-  delivered: 'bg-green-100 text-green-800', cancelled: 'bg-red-100 text-red-800',
-};
 
 export default function AdminOrders() {
+  const navigate = useNavigate();
   const [orders, setOrders] = useState<any[]>([]);
   const [filter, setFilter] = useState('all');
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [loading, setLoading] = useState(false);
-  const [detail, setDetail] = useState<any>(null);
-  const [orderItems, setOrderItems] = useState<any[]>([]);
 
   const load = async () => {
     setLoading(true);
@@ -33,18 +27,18 @@ export default function AdminOrders() {
       let q = supabase.from('orders').select('*, order_items(*, products(image_url, name))').order('created_at', { ascending: false });
       if (filter !== 'all') q = q.eq('status', filter as any);
       if (debouncedSearch && debouncedSearch.trim() !== '') {
-        // search by order_number (partial) - case-insensitive
         q = q.ilike('order_number', `%${debouncedSearch}%`);
       }
       const { data } = await q;
-      setOrders(data || []);
+      // Filter out orders with no items (blank/incomplete orders)
+      const validOrders = (data || []).filter(o => o.order_items && o.order_items.length > 0);
+      setOrders(validOrders);
     } finally {
       setLoading(false);
     }
   };
   useEffect(() => { load(); }, [filter, debouncedSearch]);
 
-  // Debounce search input
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(search), 300);
     return () => clearTimeout(t);
@@ -53,13 +47,7 @@ export default function AdminOrders() {
   const updateStatus = async (id: string, status: string) => {
     await supabase.from('orders').update({ status } as any).eq('id', id);
     toast({ title: `Order status updated to ${status}` });
-    setDetail(prev => (prev && prev.id === id ? { ...prev, status } : prev));
     load();
-  };
-
-  const viewDetail = (order: any) => {
-    setDetail(order);
-    setOrderItems(order.order_items || []);
   };
 
   return (
@@ -106,9 +94,8 @@ export default function AdminOrders() {
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ duration: 0.15 }}
                     className={`p-4 flex items-center gap-4 transition-colors cursor-pointer ${matchesSearch ? 'bg-yellow-50 ring-1 ring-yellow-100' : 'hover:bg-muted/40'}`}
-                    onClick={() => viewDetail(o)}
+                    onClick={() => navigate(`/admin/orders/${o.order_number}`)}
                   >
-                    {/* Product Image */}
                     <div className="w-16 h-16 rounded-lg bg-muted flex items-center justify-center overflow-hidden flex-shrink-0">
                       {imageUrl ? (
                         <img src={imageUrl} alt="" className="w-full h-full object-cover" />
@@ -117,7 +104,6 @@ export default function AdminOrders() {
                       )}
                     </div>
 
-                    {/* Order Info */}
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-1">
                         <span className="font-semibold text-sm truncate">{itemName}</span>
@@ -146,7 +132,6 @@ export default function AdminOrders() {
                       </div>
                     </div>
 
-                    {/* Chevron */}
                     <ChevronRight className="h-5 w-5 text-muted-foreground flex-shrink-0" />
                   </motion.div>
                 );
@@ -155,66 +140,6 @@ export default function AdminOrders() {
           )}
         </CardContent>
       </Card>
-
-      <Dialog open={!!detail} onOpenChange={() => setDetail(null)}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader><DialogTitle>Order {detail?.order_number}</DialogTitle></DialogHeader>
-          {detail && (
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-2 text-sm">
-                <div><span className="text-muted-foreground">Status:</span> <Badge className={statusColors[detail.status]}>{detail.status}</Badge></div>
-                <div><span className="text-muted-foreground">Payment:</span> {detail.payment_method.toUpperCase()}</div>
-                <div><span className="text-muted-foreground">Subtotal:</span> {formatPrice(detail.subtotal)}</div>
-                <div><span className="text-muted-foreground">Delivery:</span> {formatPrice(detail.delivery_charge)}</div>
-                {Number(detail.discount) > 0 && (
-                  <div className="col-span-2 bg-green-50 border border-green-200 rounded p-2">
-                    <div className="flex items-center justify-between">
-                      <span className="text-green-800 font-medium">
-                        💰 Discount {detail.coupon_code && `(${detail.coupon_code})`}
-                      </span>
-                      <span className="text-green-700 font-bold">-{formatPrice(detail.discount)}</span>
-                    </div>
-                  </div>
-                )}
-                <div className="font-bold col-span-2 pt-1 border-t"><div className="flex justify-between"><span className="text-muted-foreground">Total:</span><span>{formatPrice(detail.total)}</span></div></div>
-              </div>
-              <div className="flex items-center justify-between gap-3">
-                <span className="text-sm text-muted-foreground">Update status</span>
-                <Select value={detail.status} onValueChange={v => updateStatus(detail.id, v)}>
-                  <SelectTrigger className="w-40 h-8 capitalize"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {statuses.map(s => (
-                      <SelectItem key={s} value={s} className="capitalize">{s}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              {detail.delivery_address && (
-                <div className="text-sm p-3 bg-muted rounded-lg">
-                  <p className="font-medium mb-1">Delivery Address</p>
-                  <p>{(detail.delivery_address as any).full_name}, {(detail.delivery_address as any).phone}</p>
-                  <p>{(detail.delivery_address as any).address_line1}, {(detail.delivery_address as any).city} - {(detail.delivery_address as any).pincode}</p>
-                </div>
-              )}
-              {detail.notes && (
-                <div className="text-sm p-3 bg-primary/10 border border-primary/30 rounded-lg">
-                  <p className="font-medium mb-1 text-primary">Customer Instructions</p>
-                  <p className="text-foreground whitespace-pre-wrap">{detail.notes}</p>
-                </div>
-              )}
-              <div>
-                <p className="font-medium text-sm mb-2">Items</p>
-                {orderItems.map(item => (
-                  <div key={item.id} className="flex justify-between text-sm py-1 border-b last:border-0">
-                    <span>{item.product_name} ×{item.quantity}</span>
-                    <span>{formatPrice(item.total)}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

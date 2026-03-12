@@ -1,6 +1,7 @@
+import { useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Trash2, Minus, Plus, ShoppingBag, Leaf } from 'lucide-react';
+import { Trash2, Minus, Plus, ShoppingBag, Leaf, Package } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { useCart } from '@/hooks/useCart';
@@ -9,6 +10,8 @@ import ProductRecommendations from '@/components/ProductRecommendations';
 import TaxInclusiveInfo from '@/components/TaxInclusiveInfo';
 import { formatPrice } from '@/lib/formatters';
 import { Loader } from '@/components/ui/loader';
+import { getChargedWeight } from '@/lib/deliveryCalculations';
+import SEOHead from '@/components/SEOHead';
 
 function getPricingInfo(price: number, comparePrice?: number) {
   const hasDiscount = comparePrice && comparePrice > price;
@@ -20,6 +23,15 @@ export default function Cart() {
   const { items, total, loading, updateQuantity, removeItem } = useCart();
   const { user } = useAuth();
   const navigate = useNavigate();
+
+  const totalWeightKg = useMemo(() => {
+    return items.reduce((sum, item) => {
+      const wkg = Number((item.product as any).weight_kg) || 0;
+      return sum + wkg * item.quantity;
+    }, 0);
+  }, [items]);
+
+  const chargedWeight = useMemo(() => getChargedWeight(totalWeightKg), [totalWeightKg]);
 
   if (!user) {
     return (
@@ -56,14 +68,15 @@ export default function Cart() {
   }
 
   return (
-    <div className="container mx-auto px-4 pt-24 pb-8">
-      <h1 className="text-3xl font-display font-bold mb-8">Shopping Cart</h1>
-      <div className="grid lg:grid-cols-3 gap-8">
+    <div className="container mx-auto px-4 pt-20 md:pt-24 pb-8">
+      <SEOHead title="Shopping Cart" description="Review items in your shopping cart at PANDIYIN." noindex />
+      <h1 className="text-2xl md:text-3xl font-display font-bold mb-6 md:mb-8">Shopping Cart</h1>
+      <div className="grid lg:grid-cols-3 gap-6 md:gap-8">
         <div className="lg:col-span-2 space-y-4">
           {items.map((item, i) => (
             <motion.div key={item.id} initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.05 }}>
-              <Card className="p-4 flex gap-4">
-                <div className="w-20 h-20 rounded-lg bg-muted flex-shrink-0 overflow-hidden flex items-center justify-center">
+              <Card className="p-3 md:p-4 flex gap-3 md:gap-4">
+                <div className="w-16 h-16 md:w-20 md:h-20 rounded-lg bg-muted flex-shrink-0 overflow-hidden flex items-center justify-center">
                   {item.product.image_url ? (
                     <img src={item.product.image_url} alt={item.product.name} className="w-full h-full object-cover rounded-lg" />
                   ) : (
@@ -72,6 +85,9 @@ export default function Cart() {
                 </div>
                 <div className="flex-1 min-w-0">
                   <Link to={`/products/${item.product_id}`} className="font-semibold text-sm hover:text-primary line-clamp-1">{item.product.name}</Link>
+                  {item.product.stock_quantity > 0 && item.product.stock_quantity <= 5 && (
+                    <p className="text-xs font-medium text-destructive mt-0.5">Only {item.product.stock_quantity} left in stock!</p>
+                  )}
                   {(item.product as any).weight && <p className="text-xs text-muted-foreground mt-0.5">{(item.product as any).weight}{(item.product as any).unit ? ` ${(item.product as any).unit}` : ''}</p>}
                   {(() => {
                     const pricing = getPricingInfo(item.product.price, (item.product as any).compare_price);
@@ -88,7 +104,7 @@ export default function Cart() {
                     <div className="flex items-center border rounded-md">
                       <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => updateQuantity(item.id, item.quantity - 1)}><Minus className="h-3 w-3" /></Button>
                       <span className="w-8 text-center text-sm">{item.quantity}</span>
-                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => updateQuantity(item.id, item.quantity + 1)}><Plus className="h-3 w-3" /></Button>
+                      <Button variant="ghost" size="icon" className="h-8 w-8" disabled={item.quantity >= item.product.stock_quantity} onClick={() => updateQuantity(item.id, item.quantity + 1)}><Plus className="h-3 w-3" /></Button>
                     </div>
                     <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => removeItem(item.id)}><Trash2 className="h-4 w-4" /></Button>
                   </div>
@@ -120,7 +136,7 @@ export default function Cart() {
             
             <div className="space-y-2 text-sm">
               <div className="flex justify-between"><span className="text-muted-foreground">Subtotal</span><span>{formatPrice(total)}</span></div>
-              <div className="flex justify-between"><span className="text-muted-foreground">Delivery</span><span className="text-primary">Calculated at checkout</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Delivery</span><span className="text-muted-foreground text-xs">Calculated at checkout</span></div>
             </div>
             <div className="border-t mt-4 pt-4 flex justify-between text-lg">
               <span className="font-bold">Total</span><span className="font-medium text-primary">{formatPrice(total)}</span>

@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
-import { Plus, MapPin, Pencil, Trash2, Check, Loader2 } from 'lucide-react';
+import { useState, useEffect, useCallback, useRef, lazy, Suspense, useMemo } from 'react';
+import { Plus, MapPin, Pencil, Trash2, Check, Loader2, ChevronDown, LocateFixed } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -17,10 +17,15 @@ import {
   debounce,
 } from '@/lib/addressHelpers';
 
+// Lazy load the map to avoid bundle bloat
+const LocationPickerMap = lazy(() => import('./LocationPicker'));
+import type { LocationData } from './LocationPicker';
+
 export interface Address {
   id: string;
   full_name: string;
   phone: string;
+  flatNumber?: string | null;
   address_line1: string;
   address_line2: string | null;
   area?: string | null;
@@ -29,6 +34,10 @@ export interface Address {
   state: string;
   pincode: string;
   is_default: boolean;
+  country?: string;
+  latitude?: number | null;
+  longitude?: number | null;
+  display_name?: string | null;
 }
 
 interface AddressManagerProps {
@@ -40,6 +49,7 @@ interface AddressManagerProps {
 const emptyForm = {
   full_name: '',
   phone: '',
+  flatNumber: '',
   address_line1: '',
   address_line2: '',
   area: '',
@@ -47,6 +57,10 @@ const emptyForm = {
   district: '',
   state: 'Tamil Nadu',
   pincode: '',
+  country: 'India',
+  latitude: null as number | null,
+  longitude: null as number | null,
+  display_name: '',
 };
 
 export default function AddressManager({
@@ -62,6 +76,12 @@ export default function AddressManager({
   const [countryCode, setCountryCode] = useState('+91');
   const [pincodeLoading, setPincodeLoading] = useState(false);
   const pincodeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  // Track whether the map pin just updated the form — skip pincode API to preserve precision
+  const pinUpdatedByMapRef = useRef(false);
+  // Map is hidden by default; shown when user clicks "Use Current Location" or editing with coords
+  const [showMap, setShowMap] = useState(false);
+  // Triggers GPS detection when "Use Current Location" is clicked
+  const [triggerGPS, setTriggerGPS] = useState(false);
 
   const load = async () => {
     if (!user) return;
@@ -84,13 +104,19 @@ export default function AddressManager({
     }
   }, [selectable, onSelect, addresses, selectedId]);
 
-  // Debounced pincode lookup
+  // Debounced pincode lookup — skips if the map pin just set the pincode
   const handlePincodeChange = useCallback((pincode: string) => {
     setForm((f) => ({ ...f, pincode }));
 
     // Clear previous timeout
     if (pincodeTimeoutRef.current) {
       clearTimeout(pincodeTimeoutRef.current);
+    }
+
+    // If the map pin just updated the form, skip pincode API to keep precise data
+    if (pinUpdatedByMapRef.current) {
+      pinUpdatedByMapRef.current = false;
+      return;
     }
 
     // Only fetch if exactly 6 digits
@@ -124,10 +150,34 @@ export default function AddressManager({
     }, 300);
   }, []);
 
+  // Pin-based address detection: when the map pin moves, update all address fields
+  const handleLocationChange = useCallback((data: LocationData) => {
+    console.log('[ADDR] Pin location changed → updating form fields');
+    // Mark that this update came from the map pin — prevents pincode API from overwriting
+    pinUpdatedByMapRef.current = true;
+    setForm((f) => ({
+      ...f,
+      flatNumber: data.flatNumber || f.flatNumber,
+      address_line1: data.address_line1 || f.address_line1,
+      address_line2: data.address_line2 || f.address_line2,
+      area: data.area || f.area,
+      city: data.city || f.city,
+      district: data.district || f.district,
+      state: data.state || f.state,
+      pincode: data.pincode || f.pincode,
+      country: data.country || f.country,
+      latitude: data.latitude,
+      longitude: data.longitude,
+      display_name: data.display_name,
+    }));
+  }, []);
+
   const openNew = () => {
     setEditing(null);
     setForm(emptyForm);
     setCountryCode('+91');
+    setShowMap(false);
+    setTriggerGPS(false);
     setDialogOpen(true);
   };
 
@@ -143,6 +193,7 @@ export default function AddressManager({
     setForm({
       full_name: a.full_name,
       phone: phoneNumber, // Store only digits, no country code
+      flatNumber: a.flatNumber || '',
       address_line1: a.address_line1,
       address_line2: a.address_line2 || '',
       area: a.area || '',
@@ -150,8 +201,15 @@ export default function AddressManager({
       district: a.district || '',
       state: a.state,
       pincode: a.pincode,
+      country: a.country || 'India',
+      latitude: a.latitude || null,
+      longitude: a.longitude || null,
+      display_name: a.display_name || '',
     });
 
+    // Show map if the address already has stored coordinates
+    setShowMap(!!(a.latitude && a.longitude));
+    setTriggerGPS(false);
     setDialogOpen(true);
   };
 
@@ -160,6 +218,7 @@ export default function AddressManager({
       !user ||
       !form.full_name ||
       !form.phone ||
+      !form.flatNumber ||
       !form.address_line1 ||
       !form.pincode
     ) {
@@ -185,6 +244,7 @@ export default function AddressManager({
     const payload = {
       full_name: form.full_name,
       phone: phoneDigitsOnly, // Only digits, no country code
+      flatNumber: form.flatNumber,
       address_line1: form.address_line1,
       address_line2: form.address_line2,
       area: form.area || null,
@@ -192,6 +252,10 @@ export default function AddressManager({
       district: form.district || null,
       state: form.state,
       pincode: form.pincode,
+      country: form.country,
+      latitude: form.latitude,
+      longitude: form.longitude,
+      display_name: form.display_name,
       user_id: user.id,
       is_default: addresses.length === 0,
     };
@@ -259,6 +323,9 @@ export default function AddressManager({
   const selectAddress = (a: Address) => {
     if (onSelect) onSelect(a);
   };
+  const [showAllAddresses, setShowAllAddresses] = useState(false);
+
+  const selectedAddr = addresses.find(a => a.id === selectedId);
 
   return (
     <div className="space-y-3">
@@ -277,11 +344,50 @@ export default function AddressManager({
               <Plus className="h-3 w-3" /> Add New
             </Button>
           </DialogTrigger>
-          <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
-            <DialogHeader>
+          <DialogContent className="max-w-md max-h-[90vh] overflow-hidden p-0 rounded-lg">
+            <div
+              className="overflow-y-auto pt-6 px-6 pb-6 scrollbar-hide"
+              style={{ maxHeight: '90vh', scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+            >
+            <DialogHeader className="text-center pr-8">
               <DialogTitle>{editing ? 'Edit Address' : 'Add Address'}</DialogTitle>
             </DialogHeader>
-            <div className="space-y-3">
+            <div className="space-y-3 mt-3">
+              {/* Use Current Location button — reveals map + triggers GPS */}
+              {!showMap && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => { setShowMap(true); setTriggerGPS(true); }}
+                  className="w-full gap-2 text-sm border-primary/30 hover:bg-primary/5"
+                >
+                  <LocateFixed className="h-4 w-4 text-primary" />
+                   Use Current Location
+                </Button>
+              )}
+
+              {/* Pin-based Location Picker — shown after clicking Use Current Location */}
+              {showMap && dialogOpen && (
+                <Suspense
+                  fallback={
+                    <div className="h-[250px] md:h-[300px] rounded-lg bg-muted/50 flex items-center justify-center">
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        Loading map...
+                      </div>
+                    </div>
+                  }
+                >
+                  <LocationPickerMap
+                    onLocationChange={handleLocationChange}
+                    autoDetectGPS={triggerGPS}
+                    initialLatitude={form.latitude}
+                    initialLongitude={form.longitude}
+                  />
+                </Suspense>
+              )}
+
               <div className="space-y-1">
                 <Label className="text-xs">Full Name *</Label>
                 <Input
@@ -301,11 +407,22 @@ export default function AddressManager({
                     onChange={(e) =>
                       setForm((f) => ({ ...f, phone: e.target.value }))
                     }
-                    className="rounded-l-none h-12 text-sm bg-background focus-visible:ring-2 focus-visible:ring-green-700/40 focus-visible:ring-offset-0 outline-none"
+                    className="rounded-l-none h-12 text-sm bg-background"
                     placeholder="6383709933"
                     maxLength={getMaxPhoneLength(countryCode)}
                   />
                 </div>
+              </div>
+
+              <div className="space-y-1">
+                <Label className="text-xs">Flat / House Number *</Label>
+                <Input
+                  value={form.flatNumber}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, flatNumber: e.target.value }))
+                  }
+                  placeholder="Enter flat or house number"
+                />
               </div>
 
               <div className="space-y-1">
@@ -328,63 +445,14 @@ export default function AddressManager({
                 />
               </div>
 
-              <div className="space-y-1">
-                <Label className="text-xs">Pincode *</Label>
-                <div className="relative">
-                  <Input
-                    value={form.pincode}
-                    onChange={(e) => handlePincodeChange(e.target.value)}
-                    maxLength={6}
-                    placeholder="625001"
-                  />
-                  {pincodeLoading && (
-                    <Loader2 className="h-3 w-3 animate-spin absolute right-2 top-3 text-muted-foreground" />
-                  )}
-                </div>
-              </div>
-
-              {/* Area / Village */}
-              <div className="space-y-1">
-                <Label className="text-xs">Area / Village</Label>
-                <div className="relative">
-                  <Input
-                    value={form.area}
-                    onChange={(e) =>
-                      setForm((f) => ({ ...f, area: e.target.value }))
-                    }
-                    disabled={pincodeLoading}
-                  />
-                  {pincodeLoading && (
-                    <Loader2 className="h-3 w-3 animate-spin absolute right-2 top-3 text-muted-foreground" />
-                  )}
-                </div>
-              </div>
-
               {/* City / Taluk */}
               <div className="space-y-1">
-                <Label className="text-xs">City / Taluk</Label>
+                <Label className="text-xs">City</Label>
                 <div className="relative">
                   <Input
                     value={form.city}
                     onChange={(e) =>
                       setForm((f) => ({ ...f, city: e.target.value }))
-                    }
-                    disabled={pincodeLoading}
-                  />
-                  {pincodeLoading && (
-                    <Loader2 className="h-3 w-3 animate-spin absolute right-2 top-3 text-muted-foreground" />
-                  )}
-                </div>
-              </div>
-
-              {/* District */}
-              <div className="space-y-1">
-                <Label className="text-xs">District</Label>
-                <div className="relative">
-                  <Input
-                    value={form.district}
-                    onChange={(e) =>
-                      setForm((f) => ({ ...f, district: e.target.value }))
                     }
                     disabled={pincodeLoading}
                   />
@@ -411,9 +479,50 @@ export default function AddressManager({
                 </div>
               </div>
 
+              <div className="space-y-1">
+                <Label className="text-xs">Pincode *</Label>
+                <div className="relative">
+                  <Input
+                    value={form.pincode}
+                    onChange={(e) => handlePincodeChange(e.target.value)}
+                    maxLength={6}
+                    placeholder="625001"
+                  />
+                  {pincodeLoading && (
+                    <Loader2 className="h-3 w-3 animate-spin absolute right-2 top-3 text-muted-foreground" />
+                  )}
+                </div>
+              </div>
+
+              {/* Country */}
+              <div className="space-y-1">
+                <Label className="text-xs">Country</Label>
+                <div className="relative">
+                  <Input
+                    value={form.country}
+                    onChange={(e) =>
+                      setForm((f) => ({ ...f, country: e.target.value }))
+                    }
+                    disabled={pincodeLoading}
+                  />
+                </div>
+              </div>
+
+              <div className="hidden">
+                <Input type="hidden" value={form.area} />
+                <Input type="hidden" value={form.district} />
+              </div>
+
+              {/* Hidden fields for delivery precision */}
+              <input type="hidden" name="latitude" value={form.latitude || ''} />
+              <input type="hidden" name="longitude" value={form.longitude || ''} />
+              <input type="hidden" name="display_name" value={form.display_name || ''} />
+              <input type="hidden" name="country" value={form.country || ''} />
+
               <Button onClick={save} className="w-full">
                 {editing ? 'Update' : 'Save'} Address
               </Button>
+            </div>
             </div>
           </DialogContent>
         </Dialog>
@@ -425,89 +534,148 @@ export default function AddressManager({
         </p>
       )}
 
-      <div className="grid gap-2">
-        {addresses.map((a) => {
-          const isSelected = selectedId === a.id;
-          return (
-            <Card
-              key={a.id}
-              className={`cursor-pointer transition-all hover:shadow-md ${
-                selectable ? 'hover:border-primary' : ''
-              } ${isSelected ? 'border-primary ring-1 ring-primary' : ''}`}
-              onClick={() => selectable && selectAddress(a)}
-            >
-              <CardContent className="p-3 flex items-start gap-3">
-                {selectable && (
-                  <div
-                    className={`mt-1 w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${
-                      isSelected
-                        ? 'border-primary bg-primary'
-                        : 'border-muted-foreground/30'
-                    }`}
-                  >
-                    {isSelected && (
-                      <Check className="h-2.5 w-2.5 text-primary-foreground" />
-                    )}
+      {/* Collapsible address view for checkout (selectable mode) */}
+      {selectable && addresses.length > 0 ? (() => {
+        const otherAddresses = addresses.filter(a => a.id !== selectedId);
+        const visibleOthers = showAllAddresses ? otherAddresses : otherAddresses.slice(0, 1);
+        const hiddenCount = otherAddresses.length - 1;
+
+        return (
+          <div className="space-y-2">
+            {/* Selected address card */}
+            {selectedAddr && (
+              <Card className="border-primary ring-1 ring-primary">
+                <CardContent className="p-3 flex items-start gap-3">
+                  <div className="mt-1 w-4 h-4 rounded-full border-2 border-primary bg-primary flex items-center justify-center flex-shrink-0">
+                    <Check className="h-2.5 w-2.5 text-primary-foreground" />
                   </div>
-                )}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="font-medium text-sm">{selectedAddr.full_name}</span>
+                      {selectedAddr.is_default && <Badge variant="secondary" className="text-[10px] px-1.5 py-0">Default</Badge>}
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      {selectedAddr.flatNumber ? `${selectedAddr.flatNumber}, ` : ''}{selectedAddr.address_line1}
+                    </p>
+                    {selectedAddr.address_line2 && <p className="text-xs text-muted-foreground">{selectedAddr.address_line2},</p>}
+                    <p className="text-xs text-muted-foreground">
+                      {selectedAddr.city} - {selectedAddr.pincode},
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {selectedAddr.state}, {selectedAddr.country || 'India'},
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-1">+91 {selectedAddr.phone}</p>
+                  </div>
+                  <div className="flex gap-1 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(selectedAddr)}>
+                      <Pencil className="h-3 w-3" />
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Other address cards (1 visible by default, rest behind See more) */}
+            {visibleOthers.length > 0 && (
+              <div className="grid gap-2">
+                {visibleOthers.map((a) => (
+                  <Card
+                    key={a.id}
+                    className="cursor-pointer transition-all hover:shadow-md hover:border-primary"
+                    onClick={() => { selectAddress(a); setShowAllAddresses(false); }}
+                  >
+                    <CardContent className="p-3 flex items-start gap-3">
+                      <div className="mt-1 w-4 h-4 rounded-full border-2 border-muted-foreground/30 flex-shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="font-medium text-sm">{a.full_name}</span>
+                          {a.is_default && <Badge variant="secondary" className="text-[10px] px-1.5 py-0">Default</Badge>}
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          {a.flatNumber ? `${a.flatNumber}, ` : ''}{a.address_line1}
+                        </p>
+                        {a.address_line2 && <p className="text-xs text-muted-foreground">{a.address_line2},</p>}
+                        <p className="text-xs text-muted-foreground">
+                          {a.city} - {a.pincode},
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {a.state}, {a.country || 'India'}.
+                        </p>
+                        <p className="text-xs text-muted-foreground mt-1">+91 {a.phone}</p>
+                      </div>
+                      <div className="flex gap-1 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+                        {!a.is_default && (
+                          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setDefault(a.id)} title="Set as default">
+                            <MapPin className="h-3 w-3" />
+                          </Button>
+                        )}
+                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(a)}>
+                          <Pencil className="h-3 w-3" />
+                        </Button>
+                        <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => remove(a.id)}>
+                          <Trash2 className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            )}
+
+            {/* See more / See less at the bottom */}
+            {hiddenCount > 0 && (
+              <button
+                type="button"
+                className="w-full text-xs text-muted-foreground hover:text-foreground transition-colors py-1.5 flex items-center justify-center gap-1.5"
+                onClick={() => setShowAllAddresses(!showAllAddresses)}
+              >
+                <ChevronDown className={`h-3.5 w-3.5 transition-transform duration-200 ${showAllAddresses ? 'rotate-180' : ''}`} />
+                {showAllAddresses ? 'See less' : `See more addresses (${hiddenCount} more)`}
+              </button>
+            )}
+          </div>
+        );
+      })() : (
+        /* Non-selectable: show all */
+        <div className="grid gap-2">
+          {addresses.map((a) => (
+            <Card key={a.id} className="cursor-pointer transition-all hover:shadow-md">
+              <CardContent className="p-3 flex items-start gap-3">
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-1">
-                    <span className="font-medium text-sm">
-                      {a.full_name}
-                    </span>
-                    {a.is_default && (
-                      <Badge
-                        variant="secondary"
-                        className="text-[10px] px-1.5 py-0"
-                      >
-                        Default
-                      </Badge>
-                    )}
+                    <span className="font-medium text-sm">{a.full_name}</span>
+                    {a.is_default && <Badge variant="secondary" className="text-[10px] px-1.5 py-0">Default</Badge>}
                   </div>
-                  <p className="text-xs text-muted-foreground line-clamp-2">
-                    {a.address_line1}
-                    {a.address_line2 ? `, ${a.address_line2}` : ''}, {a.city} -{' '}
-                    {a.pincode}
+                  <p className="text-xs text-muted-foreground">
+                    {a.flatNumber ? `${a.flatNumber}, ` : ''}{a.address_line1}
                   </p>
-                  <p className="text-xs text-muted-foreground">+91 {a.phone}</p>
+                  {a.address_line2 && <p className="text-xs text-muted-foreground">{a.address_line2},</p>}
+                  <p className="text-xs text-muted-foreground">
+                    {a.city} - {a.pincode},
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {a.state}, {a.country || 'India'}.
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-1">+91 {a.phone}</p>
                 </div>
-                <div
-                  className="flex gap-1 flex-shrink-0"
-                  onClick={(e) => e.stopPropagation()}
-                >
+                <div className="flex gap-1 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
                   {!a.is_default && (
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-7 w-7"
-                      onClick={() => setDefault(a.id)}
-                      title="Set as default"
-                    >
+                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setDefault(a.id)} title="Set as default">
                       <MapPin className="h-3 w-3" />
                     </Button>
                   )}
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7"
-                    onClick={() => openEdit(a)}
-                  >
+                  <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(a)}>
                     <Pencil className="h-3 w-3" />
                   </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7 text-destructive"
-                    onClick={() => remove(a.id)}
-                  >
+                  <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => remove(a.id)}>
                     <Trash2 className="h-3 w-3" />
                   </Button>
                 </div>
               </CardContent>
             </Card>
-          );
-        })}
-      </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

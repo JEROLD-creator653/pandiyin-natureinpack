@@ -69,7 +69,7 @@ class PerformanceMonitor {
       const lcpObserver = new PerformanceObserver((entryList) => {
         const entries = entryList.getEntries();
         const lastEntry = entries[entries.length - 1];
-        this.metrics.lcp = lastEntry.renderTime || lastEntry.loadTime;
+        this.metrics.lcp = (lastEntry as any).renderTime || (lastEntry as any).loadTime;
       });
       lcpObserver.observe({ entryTypes: ['largest-contentful-paint'] });
 
@@ -78,7 +78,7 @@ class PerformanceMonitor {
       const clsObserver = new PerformanceObserver((entryList) => {
         const entries = entryList.getEntries();
         entries.forEach(entry => {
-          if (!entry.hadRecentInput) {
+          if (!(entry as any).hadRecentInput) {
             clsValue += (entry as any).value;
           }
         });

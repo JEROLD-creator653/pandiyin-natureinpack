@@ -1,9 +1,6 @@
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 
-/**
- * Hook for prefetching products data to improve perceived performance
- */
 export function usePrefetchProducts() {
   const queryClient = useQueryClient();
 
@@ -16,7 +13,6 @@ export function usePrefetchProducts() {
           .select('id, name, price, image_url, categories(name)')
           .range(pageParam * 12, pageParam * 12 + 11)
           .order('created_at', { ascending: false });
-
         if (error) throw error;
         return data;
       },
@@ -27,9 +23,6 @@ export function usePrefetchProducts() {
   return { prefetchProducts };
 }
 
-/**
- * Hook for prefetching banner data
- */
 export function usePrefetchBanners() {
   const queryClient = useQueryClient();
 
@@ -37,12 +30,11 @@ export function usePrefetchBanners() {
     await queryClient.prefetchQuery({
       queryKey: ['banners'],
       queryFn: async () => {
-        const { data, error } = await supabase
-          .from('website_banners')
+        const { data, error } = await (supabase as any)
+          .from('banners')
           .select('*')
           .eq('is_active', true)
-          .order('position', { ascending: true });
-
+          .order('sort_order', { ascending: true });
         if (error) throw error;
         return data;
       },
@@ -52,9 +44,6 @@ export function usePrefetchBanners() {
   return { prefetchBanners };
 }
 
-/**
- * Hook for prefetching categories
- */
 export function usePrefetchCategories() {
   const queryClient = useQueryClient();
 
@@ -62,17 +51,12 @@ export function usePrefetchCategories() {
     await queryClient.prefetchQuery({
       queryKey: ['categories'],
       queryFn: async () => {
-        const { data, error } = await supabase
-          .from('categories')
-          .select('*')
-          .eq('is_active', true)
-  const { data, error } = await (supabase as any)
+        const { data: catData, error: catError } = await supabase
           .from('categories')
           .select('*')
           .order('name', { ascending: true });
-
-        if (error) throw error;
-        return data;
+        if (catError) throw catError;
+        return catData;
       },
     });
   };
@@ -80,9 +64,6 @@ export function usePrefetchCategories() {
   return { prefetchCategories };
 }
 
-/**
- * Prefetch on mouse hover or page load
- */
 export function usePrefetchOnHover(callback: () => Promise<void>) {
   const handleMouseEnter = () => {
     callback();

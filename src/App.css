@@ -100,3 +100,15 @@
   stroke: #06b6d4;
 }
 
+/* Hide scrollbar utility for modal/dialog */
+.scrollbar-hide {
+  scrollbar-width: none !important; /* Firefox */
+  -ms-overflow-style: none !important; /* IE 10+ */
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none !important; /* Chrome/Safari/Webkit */
+  width: 0 !important;
+  height: 0 !important;
+  background: transparent !important;
+}
+

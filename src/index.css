@@ -149,6 +149,19 @@
     background: transparent;
   }
 
+  /* Hide scrollbar utility */
+  .scrollbar-hide {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+    width: 0;
+    height: 0;
+    background: transparent;
+  }
+
   /* Scrollbar color utilities */
   .scrollbar-thumb-slate-300::-webkit-scrollbar-thumb {
     background: #cbd5e1;
@@ -161,6 +174,54 @@
   .scrollbar-track-slate-100::-webkit-scrollbar-track {
     background: #f1f5f9;
   }
+}
+
+/* Force hide scrollbar on dialog content — outside @layer for max specificity */
+[data-radix-dialog-content].scrollbar-hide,
+[role="dialog"].scrollbar-hide,
+.scrollbar-hide {
+  scrollbar-width: none !important;
+  -ms-overflow-style: none !important;
+}
+
+[data-radix-dialog-content].scrollbar-hide::-webkit-scrollbar,
+[role="dialog"].scrollbar-hide::-webkit-scrollbar,
+.scrollbar-hide::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+  background: transparent !important;
+}
+
+/* Product Description — word-break overrides.
+   Placed OUTSIDE @layer so they beat all layered styles (utilities, prose, etc.).
+   - word-break:normal   → never split words arbitrarily
+   - overflow-wrap:break-word → wrap at spaces; only break mid-word for unbreakable strings
+   - white-space:normal  → allow normal line wrapping */
+.product-description,
+.product-description *,
+.product-description p,
+.product-description li,
+.product-description span,
+.product-description div,
+.product-description strong,
+.product-description em,
+.product-description h1,
+.product-description h2,
+.product-description h3,
+.product-description h4,
+.product-description h5,
+.product-description h6 {
+  word-break: normal !important;
+  overflow-wrap: break-word !important;
+  white-space: normal !important;
+  hyphens: none !important;
+}
+
+.product-description {
+  max-width: 100%;
+  width: 100%;
+  line-height: 1.7;
 }
 
 /* Product Description Formatting Styles */

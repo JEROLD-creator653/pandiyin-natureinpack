@@ -76,7 +76,7 @@ export async function setCacheItem<T>(
 export async function getCacheItem<T>(key: string): Promise<T | null> {
   try {
     const database = await initDB();
-    const transaction = database.transaction([STORE_NAME], 'readonly');
+    const transaction = database.transaction([STORE_NAME], 'readwrite');
     const store = transaction.objectStore(STORE_NAME);
     
     return new Promise((resolve) => {

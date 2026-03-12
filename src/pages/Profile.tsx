@@ -8,8 +8,11 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from '@/hooks/use-toast';
+import { useQueryClient } from '@tanstack/react-query';
+import { clearAllCache } from '@/lib/cacheService';
 import AddressManager from '@/components/AddressManager';
 import { Loader } from '@/components/ui/loader';
+import SEOHead from '@/components/SEOHead';
 
 export default function Profile() {
   const { user, loading } = useAuth();
@@ -38,16 +41,30 @@ export default function Profile() {
     }
   }, [user, loading]);
 
+  const queryClient = useQueryClient();
+
   const saveProfile = async () => {
     if (!user) return;
     setSaving(true);
     const { error } = await supabase.from('profiles').update({ full_name: fullName, phone }).eq('user_id', user.id);
-    setSaving(false);
     if (error) {
+      setSaving(false);
       toast({ title: 'Failed to update profile', variant: 'destructive' });
-    } else {
-      toast({ title: 'Profile updated successfully!' });
+      return;
     }
+
+    // Sync the updated name into all existing reviews by this user
+    await (supabase as any)
+      .from('product_reviews')
+      .update({ user_name: fullName })
+      .eq('user_id', user.id);
+
+    // Invalidate all cached data so other pages reflect the change
+    await clearAllCache();
+    queryClient.invalidateQueries();
+
+    setSaving(false);
+    toast({ title: 'Profile updated successfully!' });
   };
 
   // Show loading state while auth is initializing
@@ -59,6 +76,7 @@ export default function Profile() {
 
   return (
     <div className="container mx-auto px-4 pt-24 pb-8 max-w-2xl">
+      <SEOHead title="My Profile" description="Manage your PANDIYIN account profile and addresses." noindex />
       <h1 className="text-3xl font-display font-bold mb-8">My Profile</h1>
 
       <div className="space-y-6">

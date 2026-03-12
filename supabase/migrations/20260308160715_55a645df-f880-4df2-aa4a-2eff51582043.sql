@@ -1,0 +1,1 @@
+DROP POLICY IF EXISTS "Anyone can view profile names" ON public.profiles;

@@ -1,6 +1,7 @@
 import { useState, useEffect, createContext, useContext, ReactNode } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import type { User, Session } from '@supabase/supabase-js';
+import { toast } from 'sonner';
 
 interface AuthContextType {
   user: User | null;
@@ -19,7 +20,51 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-const STORAGE_KEY = 'pandiyin_auth_session';
+// ─── Helpers ──────────────────────────────────────────────────
+/** Purge every stale Supabase key + our legacy custom key from localStorage */
+function purgeStaleAuthKeys() {
+  try {
+    const keysToRemove: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && (key.startsWith('sb-') || key === 'pandiyin_auth_session')) {
+        keysToRemove.push(key);
+      }
+    }
+    keysToRemove.forEach((k) => localStorage.removeItem(k));
+  } catch {
+    // localStorage may be unavailable (incognito, quota exceeded)
+  }
+}
+
+/** Returns a valid session or null. Refreshes if the access token is expired / about to expire. */
+async function getSafeSession(): Promise<Session | null> {
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return null;
+
+    // If token expires within 60 s, proactively refresh
+    const expiresAt = session.expires_at ?? 0; // unix seconds
+    const nowSec = Math.floor(Date.now() / 1000);
+
+    if (expiresAt - nowSec > 60) {
+      return session; // still fresh
+    }
+
+    // Try refresh
+    const { data: { session: refreshed }, error } = await supabase.auth.refreshSession();
+    if (error || !refreshed) {
+      console.warn('[auth] Token refresh failed, signing out:', error?.message);
+      purgeStaleAuthKeys();
+      await supabase.auth.signOut();
+      return null;
+    }
+    return refreshed;
+  } catch (err) {
+    console.error('[auth] getSafeSession error:', err);
+    return null;
+  }
+}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
@@ -37,95 +82,60 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setIsAdmin(!!data);
   };
 
-  const persistSession = (session: Session | null) => {
-    if (session) {
-      try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify({
-          access_token: session.access_token,
-          refresh_token: session.refresh_token,
-          expires_at: session.expires_at,
-        }));
-      } catch (error) {
-        console.error('Failed to persist session:', error);
-      }
-    } else {
-      try {
-        localStorage.removeItem(STORAGE_KEY);
-      } catch (error) {
-        console.error('Failed to clear session:', error);
-      }
-    }
-  };
-
-  const restoreSessionFromStorage = async () => {
-    try {
-      const stored = localStorage.getItem(STORAGE_KEY);
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        // Try to restore the session using stored tokens
-        const { data: { session: restoredSession }, error } = await supabase.auth.refreshSession();
-        if (restoredSession && !error) {
-          return restoredSession;
-        }
-      }
-    } catch (error) {
-      console.error('Failed to restore session:', error);
-    }
-    return null;
-  };
-
   useEffect(() => {
     let mounted = true;
 
+    // ── 1. Set up the auth state listener FIRST (Supabase best practice) ──
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (event, newSession) => {
+        if (!mounted) return;
+
+        if (event === 'TOKEN_REFRESHED') {
+          console.log('[auth] Token refreshed');
+        }
+
+        if (event === 'SIGNED_OUT' || !newSession) {
+          setSession(null);
+          setUser(null);
+          setIsAdmin(false);
+          return;
+        }
+
+        setSession(newSession);
+        setUser(newSession.user ?? null);
+
+        if (newSession.user) {
+          // Use setTimeout to avoid Supabase deadlock when calling DB inside onAuthStateChange
+          setTimeout(() => {
+            if (mounted) checkAdmin(newSession.user.id);
+          }, 0);
+        }
+      }
+    );
+
+    // ── 2. Then get the initial session with expiry check ──
     const initializeAuth = async () => {
       try {
-        // First try to get current session
-        const { data: { session: currentSession } } = await supabase.auth.getSession();
-        
+        // Remove legacy custom key if it still exists
+        try { localStorage.removeItem('pandiyin_auth_session'); } catch {}
+
+        const safeSession = await getSafeSession();
+
         if (mounted) {
-          if (currentSession) {
-            setSession(currentSession);
-            setUser(currentSession.user ?? null);
-            persistSession(currentSession);
-            if (currentSession.user) {
-              await checkAdmin(currentSession.user.id);
-            }
-          } else {
-            // Try to restore from localStorage
-            const restoredSession = await restoreSessionFromStorage();
-            if (restoredSession && mounted) {
-              setSession(restoredSession);
-              setUser(restoredSession.user ?? null);
-              persistSession(restoredSession);
-              if (restoredSession.user) {
-                await checkAdmin(restoredSession.user.id);
-              }
-            }
+          setSession(safeSession);
+          setUser(safeSession?.user ?? null);
+          if (safeSession?.user) {
+            await checkAdmin(safeSession.user.id);
           }
           setLoading(false);
         }
       } catch (error) {
-        console.error('Auth initialization error:', error);
-        if (mounted) {
-          setLoading(false);
-        }
+        console.error('[auth] Initialization error:', error);
+        if (mounted) setLoading(false);
       }
     };
 
     initializeAuth();
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (mounted) {
-        setSession(session);
-        setUser(session?.user ?? null);
-        persistSession(session);
-        if (session?.user) {
-          setTimeout(() => checkAdmin(session.user.id), 0);
-        } else {
-          setIsAdmin(false);
-        }
-      }
-    });
 
     return () => {
       mounted = false;
@@ -151,13 +161,52 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const signInWithGoogle = async () => {
-    const { error } = await supabase.auth.signInWithOAuth({
+    const { data, error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
         redirectTo: `${window.location.origin}/auth/callback`,
+        skipBrowserRedirect: true,
+        queryParams: {
+          access_type: 'offline',
+          prompt: 'select_account',
+        },
       },
     });
-    return { error };
+
+    if (error || !data?.url) return { error: error || new Error('No auth URL returned') };
+
+    // Open Google login in a centered popup
+    const width = 500;
+    const height = 600;
+    const left = window.screenX + (window.innerWidth - width) / 2;
+    const top = window.screenY + (window.innerHeight - height) / 2;
+
+    const popup = window.open(
+      data.url,
+      'googleLogin',
+      `width=${width},height=${height},top=${top},left=${left},scrollbars=yes`
+    );
+
+    if (!popup) return { error: new Error('Popup blocked. Please allow popups for this site.') };
+
+    // Poll until popup closes — session is picked up by onAuthStateChange
+    // Use try/catch to handle COOP restrictions on popup.closed
+    await new Promise<void>((resolve) => {
+      const timer = setInterval(() => {
+        try {
+          if (popup.closed) {
+            clearInterval(timer);
+            resolve();
+          }
+        } catch {
+          // COOP policy blocks popup.closed access — fall back to timeout
+          clearInterval(timer);
+          resolve();
+        }
+      }, 500);
+    });
+
+    return { error: null };
   };
 
   const signUpWithPhone = async (phone: string, fullName: string) => {
@@ -191,7 +240,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signOut = async () => {
     await supabase.auth.signOut();
-    persistSession(null); // Clear persisted session
+    purgeStaleAuthKeys();
+    toast.success('Signed out successfully');
   };
 
   return (

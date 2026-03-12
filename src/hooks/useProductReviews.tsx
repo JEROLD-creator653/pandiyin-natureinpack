@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from './use-toast';
+import { clearAllCache } from '@/lib/cacheService';
 
 interface Review {
   id: string;
@@ -87,6 +88,7 @@ export function useProductReviews({
           product_id,
           rating,
           description,
+          user_name,
           created_at
         `, { count: 'exact' })
         .eq('product_id', productId)
@@ -126,10 +128,10 @@ export function useProductReviews({
         return;
       }
 
-      // Map reviews, use stored user_name or fallback to 'Anonymous'
+      // Use user_name directly from product_reviews table (populated on submit)
       const reviewsWithUser = (data || []).map((review: any) => ({
         ...review,
-        user_name: review.user_name || 'Verified Customer',
+        user_name: review.user_name?.trim() || 'Customer',
         user_email: ''
       }));
 
@@ -193,12 +195,23 @@ export function useProductReviews({
     }
 
     try {
+      // Fetch the user's profile name to store with the review
+      let userName = 'Customer';
+      const { data: profileData } = await (supabase as any)
+        .from('profiles')
+        .select('full_name')
+        .eq('user_id', userId)
+        .maybeSingle();
+      if (profileData?.full_name) {
+        userName = profileData.full_name;
+      }
+
       const payload = {
         user_id: userId,
         product_id: productId,
         rating: reviewData.rating,
-        description: trimmedDescription
-        // Note: user_name will be added once the database column is created
+        description: trimmedDescription,
+        user_name: userName
       };
 
       let error;
@@ -231,6 +244,27 @@ export function useProductReviews({
         title: 'Success',
         description: reviewData.reviewId ? 'Review updated successfully' : 'Review submitted successfully'
       });
+
+      // Manually update product's average_rating and review_count
+      // (in case DB trigger is missing or not firing)
+      const { data: reviewAgg } = await (supabase as any)
+        .from('product_reviews')
+        .select('rating')
+        .eq('product_id', productId);
+
+      if (reviewAgg && reviewAgg.length > 0) {
+        const avg = reviewAgg.reduce((sum: number, r: any) => sum + r.rating, 0) / reviewAgg.length;
+        await (supabase as any)
+          .from('products')
+          .update({
+            average_rating: Math.round(avg * 100) / 100,
+            review_count: reviewAgg.length
+          })
+          .eq('id', productId);
+      }
+
+      // Invalidate product cache so rating badges update on product cards
+      await clearAllCache();
 
       // Refresh reviews and stats
       await fetchStats();
@@ -271,6 +305,28 @@ export function useProductReviews({
         title: 'Success',
         description: 'Review deleted successfully'
       });
+
+      // Manually update product's average_rating and review_count
+      const { data: reviewAgg } = await (supabase as any)
+        .from('product_reviews')
+        .select('rating')
+        .eq('product_id', productId);
+
+      if (reviewAgg) {
+        const avg = reviewAgg.length > 0
+          ? reviewAgg.reduce((sum: number, r: any) => sum + r.rating, 0) / reviewAgg.length
+          : 0;
+        await (supabase as any)
+          .from('products')
+          .update({
+            average_rating: Math.round(avg * 100) / 100,
+            review_count: reviewAgg.length
+          })
+          .eq('id', productId);
+      }
+
+      // Invalidate product cache so rating badges update on product cards
+      await clearAllCache();
 
       // Refresh reviews and stats
       await fetchStats();

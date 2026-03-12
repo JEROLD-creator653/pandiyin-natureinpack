@@ -7,12 +7,15 @@ import { Label } from "@/components/ui/label";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
+import { Eye, EyeOff } from "lucide-react";
+import SEOHead from '@/components/SEOHead';
 
 export default function Auth() {
   const [isSignUp, setIsSignUp] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
   const { user, signIn, signUp, signInWithGoogle } = useAuth();
@@ -31,34 +34,27 @@ export default function Auth() {
 
     try {
       if (isSignUp) {
-        // Check if email already exists before attempting signup
-        const { data: emailExists, error: checkError } = await supabase
-          .rpc('check_email_exists' as any, { _email: email });
-
-        if (checkError) {
-          console.error('Error checking email:', checkError);
-          // Continue with signup even if check fails
-        } else if (emailExists) {
-          // Email already registered
-          toast({
-            title: "Account already exists",
-            description: "This email is already registered. Redirecting to sign in...",
-            variant: "destructive",
-          });
-          
-          // Wait a moment for user to see the message
-          setTimeout(() => {
-            setIsSignUp(false);
-            setPassword(""); // Clear password for security
-          }, 1500);
-          
-          setLoading(false);
-          return;
-        }
-
-        // Proceed with signup if email doesn't exist
+        // Proceed with signup — duplicate email is handled by the auth system
         const { error } = await signUp(email, password, fullName);
-        if (error) throw error;
+        if (error) {
+          // Handle duplicate email error gracefully
+          if (error.message?.toLowerCase().includes('already registered') || 
+              error.message?.toLowerCase().includes('already been registered') ||
+              error.message?.toLowerCase().includes('user already registered')) {
+            toast({
+              title: "Account already exists",
+              description: "This email is already registered. Please sign in instead.",
+              variant: "destructive",
+            });
+            setTimeout(() => {
+              setIsSignUp(false);
+              setPassword("");
+            }, 1500);
+            setLoading(false);
+            return;
+          }
+          throw error;
+        }
 
         toast({
           title: "Account created!",
@@ -87,18 +83,16 @@ export default function Auth() {
     try {
       const { error } = await signInWithGoogle();
       if (error) throw error;
-      
-      // If successful, user will be redirected to Google OAuth consent screen
-      // Then redirected back to /auth/callback
+      // Popup closed — session picked up by onAuthStateChange → user state updates → auto-redirect
     } catch (err: any) {
       toast({
         title: "Error",
         description: err.message || "Failed to sign in with Google",
         variant: "destructive",
       });
+    } finally {
       setGoogleLoading(false);
     }
-    // Don't set googleLoading to false on success - user is being redirected
   };
 
   const toggleMode = () => {
@@ -109,16 +103,19 @@ export default function Auth() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4 relative overflow-hidden bg-[#C9E3A8]">
-      {/* Background Image */}
-      <div className="absolute inset-0 overflow-hidden">
-        <div className="absolute inset-0 bg-white/20 z-10" />
-        <img 
-          src="/auth-bg.png" 
-          alt="Background" 
-          className="w-full h-full object-cover opacity-11"
-        />
-      </div>
+    <>
+      <SEOHead title={isSignUp ? 'Create Account' : 'Sign In'} description="Sign in or create an account at PANDIYIN to order authentic homemade foods from Madurai." noindex />
+      <div
+        className="min-h-screen flex items-center justify-center p-4 relative overflow-hidden"
+        style={{
+          backgroundImage: 'url(/auth-bg.webp)',
+          backgroundSize: 'cover',
+          backgroundPosition: 'center',
+          backgroundRepeat: 'no-repeat',
+        }}
+      >
+      {/* Semi-transparent overlay */}
+      <div className="absolute inset-0 bg-white/20 z-0" />
 
       {/* Animated Blur Orbs */}
       <div className="absolute inset-0 overflow-hidden">
@@ -167,6 +164,7 @@ export default function Auth() {
                     src="/logo.ico"
                     alt="PANDIYIN Logo"
                     className="w-full h-full object-contain"
+                    loading="eager"
                   />
                 </div>
               </motion.div>
@@ -200,13 +198,13 @@ export default function Auth() {
                 <AnimatePresence mode="wait">
                   {isSignUp && (
                     <motion.div
-                      initial={{ opacity: 0, height: 0 }}
-                      animate={{ opacity: 1, height: "auto" }}
-                      exit={{ opacity: 0, height: 0 }}
+                      initial={{ opacity: 0, height: 0, marginBottom: 0 }}
+                      animate={{ opacity: 1, height: "auto", marginBottom: 0 }}
+                      exit={{ opacity: 0, height: 0, marginBottom: 0 }}
                       transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
-                      className="overflow-hidden"
+                      style={{ overflow: "hidden" }}
                     >
-                      <div className="space-y-2 mb-4">
+                      <div className="space-y-2 pb-0">
                         <Label
                           htmlFor="name"
                           className="text-sm font-semibold text-gray-800"
@@ -219,7 +217,7 @@ export default function Auth() {
                           value={fullName}
                           onChange={(e) => setFullName(e.target.value)}
                           required={isSignUp}
-                          className="h-11 bg-white/95 border-gray-200 text-gray-900 placeholder:text-gray-400 focus:bg-white focus:ring-2 focus:ring-green-600 focus:border-green-600 transition-all duration-200"
+                          className="h-11 bg-white/95 border-gray-200 text-gray-900 placeholder:text-gray-400 focus:bg-white focus-visible:ring-primary focus-visible:border-primary transition-all duration-200"
                         />
                       </div>
                     </motion.div>
@@ -241,7 +239,7 @@ export default function Auth() {
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     required
-                    className="h-11 bg-white/95 border-gray-200 text-gray-900 placeholder:text-gray-400 focus:bg-white focus:ring-2 focus:ring-green-600 focus:border-green-600 transition-all duration-200"
+                    className="h-11 bg-white/95 border-gray-200 text-gray-900 placeholder:text-gray-400 focus:bg-white focus-visible:ring-primary focus-visible:border-primary transition-all duration-200"
                   />
                 </div>
 
@@ -253,16 +251,38 @@ export default function Auth() {
                   >
                     Password
                   </Label>
-                  <Input
-                    id="password"
-                    type="password"
-                    placeholder="••••••••"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    required
-                    minLength={6}
-                    className="h-11 bg-white/95 border-gray-200 text-gray-900 placeholder:text-gray-400 focus:bg-white focus:ring-2 focus:ring-green-600 focus:border-green-600 transition-all duration-200"
-                  />
+                  <div className="relative">
+                    <Input
+                      id="password"
+                      type={showPassword ? "text" : "password"}
+                      placeholder="••••••••"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      required
+                      minLength={6}
+                      className="h-11 bg-white/95 border-gray-200 text-gray-900 placeholder:text-gray-400 focus:bg-white focus-visible:ring-primary focus-visible:border-primary"
+                      style={{ paddingRight: '48px' }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute text-gray-400 hover:text-gray-700 focus:outline-none"
+                      style={{
+                        right: '14px',
+                        top: '50%',
+                        transform: 'translateY(-50%)',
+                        lineHeight: 0,
+                      }}
+                      tabIndex={-1}
+                      aria-label={showPassword ? "Hide password" : "Show password"}
+                    >
+                      {showPassword ? (
+                        <EyeOff className="h-5 w-5 pointer-events-none" />
+                      ) : (
+                        <Eye className="h-5 w-5 pointer-events-none" />
+                      )}
+                    </button>
+                  </div>
                 </div>
 
                 {/* Submit Button */}
@@ -344,7 +364,7 @@ export default function Auth() {
                           d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
                         />
                       </svg>
-                      Redirecting...
+                      Signing in...
                     </span>
                   ) : (
                     <span className="flex items-center justify-center gap-3">
@@ -394,6 +414,7 @@ export default function Auth() {
           </motion.div>
         </AnimatePresence>
       </div>
-    </div>
+      </div>
+    </>
   );
 }

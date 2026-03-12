@@ -1,3 +1,4 @@
 export const formatPrice = (price: number | string) => {
-  return `Rs. ${Number(price).toFixed(2)}`;
+  const num = Number(price);
+  return `Rs. ${num.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 };

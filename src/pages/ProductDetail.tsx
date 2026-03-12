@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Leaf, ShoppingCart, Minus, Plus, ArrowLeft, Star, MessageSquare } from 'lucide-react';
+import { Leaf, ShoppingCart, Minus, Plus, ArrowLeft, Star, MessageSquare, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -20,6 +20,7 @@ import ConfirmDialog from '@/components/ConfirmDialog';
 import RelatedProducts from '@/components/RelatedProducts';
 import ProductDescriptionCollapsible from '@/components/ProductDescriptionCollapsible';
 import TaxInclusiveInfo from '@/components/TaxInclusiveInfo';
+import SEOHead, { buildProductSchema, buildBreadcrumbSchema } from '@/components/SEOHead';
 import { formatPrice } from '@/lib/formatters';
 import { Loader } from '@/components/ui/loader';
 import { getPricingInfo } from '@/lib/discountCalculations';
@@ -38,6 +39,9 @@ export default function ProductDetail() {
   const [deleteReviewId, setDeleteReviewId] = useState<string | null>(null);
   const [selectedRating, setSelectedRating] = useState<number | null>(null);
   const [sortBy, setSortBy] = useState<'recent' | 'rating_high' | 'rating_low'>('recent');
+  const purchaseSectionRef = useRef<HTMLDivElement>(null);
+  const reviewsRef = useRef<HTMLDivElement>(null);
+  const [showStickyBar, setShowStickyBar] = useState(false);
   
   const {
     reviews,
@@ -68,14 +72,26 @@ export default function ProductDetail() {
       });
   }, [id]);
 
+  // Show sticky bar when the Customer Reviews section scrolls into view
+  useEffect(() => {
+    const el = reviewsRef.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => setShowStickyBar(entry.isIntersecting),
+      { threshold: 0.2 }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [product]);
+
   const handleAddToCart = () => {
     if (!user) { navigate('/auth'); return; }
-    // optimistic UI: mark as adding so button becomes "Go to Cart" instantly
+    if (adding) return; // prevent double-click
     setAdding(true);
     try {
       addToCart(product.id, qty);
     } finally {
-      setTimeout(() => setAdding(false), 400);
+      setTimeout(() => setAdding(false), 600);
     }
   };
 
@@ -121,25 +137,67 @@ export default function ProductDetail() {
     }
   };
 
+  const productUrl = `${window.location.origin}/products/${id}`;
+  const plainDescription = product?.description?.replace(/<[^>]*>/g, '').slice(0, 160) || product?.name || '';
+
+  const productJsonLd = useMemo(() => {
+    if (!product) return [];
+    return [
+      buildProductSchema({
+        name: product.name,
+        description: plainDescription,
+        price: product.price,
+        comparePrice: product.compare_price,
+        imageUrl: product.image_url,
+        images: product.images,
+        inStock: product.stock_quantity > 0,
+        category: product.categories?.name,
+        averageRating: stats?.average_rating,
+        reviewCount: stats?.total_reviews,
+        url: productUrl,
+      }),
+      buildBreadcrumbSchema([
+        { name: 'Home', url: window.location.origin },
+        { name: 'Products', url: `${window.location.origin}/products` },
+        ...(product.categories?.name ? [{ name: product.categories.name, url: `${window.location.origin}/products?category=${encodeURIComponent(product.categories.name)}` }] : []),
+        { name: product.name },
+      ]),
+    ];
+  }, [product, stats, productUrl, plainDescription]);
+
   if (loading) return (
     <Loader text="Loading product details..." className="min-h-[60vh]" delay={200} />
   );
 
   return (
-    <div className="min-h-screen bg-background pt-24 pb-8">
+    <div className="min-h-screen bg-background pt-20 md:pt-24 pb-[100px] md:pb-8">
+      {product && (
+        <SEOHead
+          title={`${product.name}${product.categories?.name ? ` - ${product.categories.name}` : ''}`}
+          description={plainDescription || `Buy ${product.name} from PANDIYIN. 100% natural homemade food from Madurai.`}
+          ogType="product"
+          ogImage={product.image_url}
+          productMeta={{
+            price: product.price,
+            currency: 'INR',
+            availability: product.stock_quantity > 0 ? 'in stock' : 'out of stock',
+          }}
+          jsonLd={productJsonLd}
+        />
+      )}
       {/* Back Button */}
-      <div className="container mx-auto px-4 mb-8">
-        <Button variant="ghost" onClick={() => navigate(-1)} className="mb-6">
-          <ArrowLeft className="mr-2 h-4 w-4" /> Back
+      <div className="container mx-auto px-4 mb-4 md:mb-8">
+        <Button variant="ghost" size="sm" onClick={() => navigate(-1)} className="mb-2 md:mb-6 -ml-2">
+          <ArrowLeft className="mr-1.5 h-4 w-4" /> Back
         </Button>
       </div>
 
       {/* Main Content Grid: Product Image + Details */}
       <div className="container mx-auto px-4">
-        <div className="grid grid-cols-1 lg:grid-cols-5 gap-8 mb-12">
-          {/* Left Column: Product Image Card (Desktop 2/5, Mobile Full Width) */}
+        <div className="grid grid-cols-1 lg:grid-cols-5 gap-6 md:gap-8 mb-12">
+          {/* Left Column: Product Image Card */}
           <div className="lg:col-span-2">
-            <div className="sticky top-28 rounded-2xl overflow-hidden border border-muted shadow-sm bg-muted h-[520px] w-full">
+            <div className="sticky top-28 rounded-2xl overflow-hidden border border-muted shadow-sm bg-muted h-[320px] md:h-[520px] w-full">
               {product.image_url ? (
                 <img 
                   src={product.image_url} 
@@ -155,12 +213,12 @@ export default function ProductDetail() {
           </div>
 
           {/* Right Column: Product Details (Desktop 3/5, Mobile Full Width) */}
-          <div className="lg:col-span-3 flex flex-col">
+          <div className="lg:col-span-3 flex flex-col min-w-0">
             {/* Product Header */}
             {product.categories?.name && (
               <Badge variant="secondary" className="mb-3 w-fit">{product.categories.name}</Badge>
             )}
-            <h1 className="text-3xl lg:text-4xl font-display font-bold mb-4">{product.name}</h1>
+            <h1 className="text-2xl md:text-3xl lg:text-4xl font-display font-bold mb-3 md:mb-4">{product.name}</h1>
             
             {/* Rating Summary */}
             {stats && stats.total_reviews > 0 && stats.average_rating > 0 && (
@@ -178,7 +236,7 @@ export default function ProductDetail() {
               return (
                 <div className="mb-6">
                   <div className="flex items-baseline gap-3 mb-2">
-                    <span className="text-4xl font-bold text-primary">{formatPrice(product.price)}</span>
+                    <span className="text-3xl md:text-4xl font-bold text-primary">{formatPrice(product.price)}</span>
                     {pricing.hasDiscount && (
                       <>
                         <span className="text-lg text-muted-foreground line-through">{formatPrice(pricing.comparePrice)}</span>
@@ -206,45 +264,40 @@ export default function ProductDetail() {
               <p className="text-sm text-muted-foreground mb-6">{product.weight} {product.unit}</p>
             )}
 
-            {/* Product Description - With Smooth Read More */}
-            <div className="mb-8 flex-grow">
-              <ProductDescriptionCollapsible
-                key={product.id}
-                content={product.description}
-                imageHeight={400}
-              />
-            </div>
-
             {/* Quantity & Add to Cart Section */}
-            <div className="space-y-4">
+            <div ref={purchaseSectionRef} className="space-y-4 mb-8">
               {product.stock_quantity > 0 ? (
                 <>
-                  <div className="flex items-center gap-4">
-                    <span className="text-sm font-medium text-muted-foreground">Quantity:</span>
+                  <div className="flex items-center gap-3 md:gap-4 flex-wrap">
+                    <span className="text-sm font-medium text-muted-foreground">Qty:</span>
                     <div className="flex items-center border rounded-lg bg-muted/50">
                       <Button 
                         variant="ghost" 
                         size="icon" 
                         onClick={() => setQty(q => Math.max(1, q - 1))}
-                        className="h-9 w-9"
+                        className="h-10 w-10 active:scale-95"
                       >
                         <Minus className="h-4 w-4" />
                       </Button>
-                      <span className="w-12 text-center font-semibold">{qty}</span>
+                      <span className="w-10 text-center font-semibold">{qty}</span>
                       <Button 
                         variant="ghost" 
                         size="icon" 
                         onClick={() => setQty(q => Math.min(product.stock_quantity, q + 1))}
-                        className="h-9 w-9"
+                        className="h-10 w-10 active:scale-95"
                       >
                         <Plus className="h-4 w-4" />
                       </Button>
                     </div>
-                    <span className="text-xs text-muted-foreground ml-2">{product.stock_quantity} available</span>
+                    {product.stock_quantity <= 5 ? (
+                      <span className="text-xs font-medium text-destructive ml-2">Only {product.stock_quantity} left in stock!</span>
+                    ) : (
+                      <span className="text-xs text-muted-foreground ml-2 hidden md:inline">{product.stock_quantity} available</span>
+                    )}
                   </div>
                   
                   <div className="flex gap-3 pt-2">
-                    {((cartItems || []).some(i => i.product_id === product.id) || adding) ? (
+                    {((cartItems || []).some(i => i.product_id === product.id)) ? (
                       <Button
                         size="lg"
                         variant="outline"
@@ -260,8 +313,13 @@ export default function ProductDetail() {
                         size="lg" 
                         className="flex-1 rounded-full h-12 font-semibold" 
                         onClick={handleAddToCart}
+                        disabled={adding}
                       >
-                        <ShoppingCart className="mr-2 h-5 w-5" /> Add to Cart
+                        {adding ? (
+                          <><Loader2 className="mr-2 h-5 w-5 animate-spin" /> Adding...</>
+                        ) : (
+                          <><ShoppingCart className="mr-2 h-5 w-5" /> Add to Cart</>
+                        )}
                       </Button>
                     )}
                     <Button 
@@ -281,11 +339,20 @@ export default function ProductDetail() {
                 <Badge variant="destructive" className="text-base px-4 py-2 w-fit">Out of Stock</Badge>
               )}
             </div>
+
+            {/* Product Description - With Smooth Read More */}
+            <div className="flex-grow min-w-0 w-full overflow-hidden">
+              <ProductDescriptionCollapsible
+                key={product.id}
+                content={product.description}
+                imageHeight={400}
+              />
+            </div>
           </div>
         </div>
 
         {/* Reviews Section */}
-        <div className="border-t pt-12">
+        <div ref={reviewsRef} className="border-t pt-12">
           <Tabs defaultValue="reviews" className="w-full">
             <TabsList className="mb-8">
               <TabsTrigger value="reviews" className="gap-2">
@@ -370,6 +437,52 @@ export default function ProductDetail() {
         description="Are you sure you want to delete this review? This action cannot be undone."
         onConfirm={confirmDeleteReview}
       />
+
+      {/* ===== MOBILE STICKY PURCHASE BAR ===== */}
+      {product.stock_quantity > 0 && (
+        <div
+          className={`fixed bottom-0 left-0 right-0 z-[999] bg-white border-t shadow-[0_-4px_12px_rgba(0,0,0,0.08)] md:hidden transition-transform duration-300 ease-in-out ${
+            showStickyBar ? 'translate-y-0' : 'translate-y-full'
+          }`}
+          style={{ padding: '12px 16px calc(12px + env(safe-area-inset-bottom))' }}
+        >
+          <div className="flex items-center gap-3">
+            {/* Add to Cart / Go to Cart */}
+            {((cartItems || []).some(i => i.product_id === product.id)) ? (
+              <Button
+                className="flex-1 h-12 rounded-xl font-semibold text-[15px] bg-primary text-primary-foreground"
+                onClick={() => navigate('/cart')}
+              >
+                <ShoppingCart className="mr-1.5 h-4 w-4" /> Go to Cart
+              </Button>
+            ) : (
+              <Button
+                className="flex-1 h-12 rounded-xl font-semibold text-[15px]"
+                onClick={handleAddToCart}
+                disabled={adding}
+              >
+                {adding ? (
+                  <><Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> Adding...</>
+                ) : (
+                  <><ShoppingCart className="mr-1.5 h-4 w-4" /> Add to Cart</>
+                )}
+              </Button>
+            )}
+
+            {/* Buy Now */}
+            <Button
+              variant="outline"
+              className="flex-1 h-12 rounded-xl font-semibold text-[15px]"
+              onClick={() => {
+                handleAddToCart();
+                navigate('/cart');
+              }}
+            >
+              Buy Now
+            </Button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

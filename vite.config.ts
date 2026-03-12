@@ -17,6 +17,7 @@ export default defineConfig(({ mode }) => ({
     alias: {
       "@": path.resolve(__dirname, "./src"),
     },
+    dedupe: ["react", "react-dom", "react/jsx-runtime"],
   },
   build: {
     target: "ES2020",
@@ -47,7 +48,5 @@ export default defineConfig(({ mode }) => ({
     sourcemap: false,
   },
   // Optimize CSS
-  css: {
-    minify: true,
-  },
+  css: {},
 }));

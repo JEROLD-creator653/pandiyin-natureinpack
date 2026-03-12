@@ -31,7 +31,7 @@ export default function ProductDescriptionCollapsible({
   const collapsedHeight = Math.min(imageHeight, fullHeight);
 
   return (
-    <div className="flex flex-col">
+    <div className="flex flex-col min-w-0 w-full">
       {/* Description Content - smooth max-height animation */}
       <div
         className={`overflow-hidden transition-all duration-300 ease-in-out ${className}`}

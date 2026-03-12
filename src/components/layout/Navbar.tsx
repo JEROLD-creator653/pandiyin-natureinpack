@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ShoppingCart, User, Menu, Search, LogOut, Package, Shield, UserCog, ArrowRight, Leaf, X } from 'lucide-react';
+import { ShoppingCart, User, Menu, Search, LogOut, Package, Shield, UserCog, ArrowRight, Leaf, X, ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -31,6 +31,9 @@ export default function Navbar() {
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
   const [isScrolled, setIsScrolled] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
+  const [profileName, setProfileName] = useState<string | null>(null);
+  const [loadingProfile, setLoadingProfile] = useState(true);
+  const [accountDropdownOpen, setAccountDropdownOpen] = useState(false);
   const { user, isAdmin, signOut } = useAuth();
   const { itemCount } = useCart();
   const navigate = useNavigate();
@@ -41,6 +44,21 @@ export default function Navbar() {
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout>>();
   
   const isHomePage = location.pathname === '/';
+
+  // Fetch profile name for mobile menu
+  useEffect(() => {
+    if (!user) { setProfileName(null); setLoadingProfile(false); return; }
+    setLoadingProfile(true);
+    supabase
+      .from('profiles')
+      .select('full_name')
+      .eq('user_id', user.id)
+      .single()
+      .then(({ data }) => {
+        if (data?.full_name) setProfileName(data.full_name);
+        setLoadingProfile(false);
+      });
+  }, [user]);
 
   useEffect(() => {
     const urlSearchQuery = searchParams.get('search') || '';
@@ -242,26 +260,44 @@ export default function Navbar() {
                 <div className="border-b p-4">
                   {user ? (
                     <div className="space-y-3">
-                      <div className="flex items-center gap-3 pb-3 border-b">
+                      <button
+                        className="flex items-center gap-3 w-full"
+                        onClick={() => setAccountDropdownOpen(!accountDropdownOpen)}
+                      >
                         <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
                           <User className="h-5 w-5 text-primary" />
                         </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-semibold truncate">{user.email?.split('@')[0] || 'Profile'}</p>
+                        <div className="flex-1 min-w-0 text-left">
+                          <p className="text-sm font-semibold truncate">{loadingProfile ? '...' : (profileName || user.email?.split('@')[0] || 'Profile')}</p>
                           <p className="text-xs text-muted-foreground truncate">{user.email}</p>
                         </div>
-                      </div>
-                      <Button variant="outline" className="w-full rounded-full h-9 text-sm" onClick={() => { navigate('/profile'); setMobileOpen(false); }}>
-                        <UserCog className="mr-2 h-4 w-4" /> Profile
-                      </Button>
-                      <Button variant="outline" className="w-full rounded-full h-9 text-sm" onClick={() => { navigate('/dashboard'); setMobileOpen(false); }}>
-                        <Package className="mr-2 h-4 w-4" /> My Orders
-                      </Button>
-                      {isAdmin && (
-                        <Button variant="outline" className="w-full rounded-full h-9 text-sm" onClick={() => { navigate('/admin'); setMobileOpen(false); }}>
-                          <Shield className="mr-2 h-4 w-4" /> Admin
-                        </Button>
-                      )}
+                        <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${accountDropdownOpen ? 'rotate-180' : ''}`} />
+                      </button>
+                      <AnimatePresence>
+                        {accountDropdownOpen && (
+                          <motion.div
+                            initial={{ height: 0, opacity: 0 }}
+                            animate={{ height: 'auto', opacity: 1 }}
+                            exit={{ height: 0, opacity: 0 }}
+                            transition={{ duration: 0.2 }}
+                            className="overflow-hidden"
+                          >
+                            <div className="space-y-2 pt-2">
+                              <Button variant="outline" className="w-full rounded-full h-9 text-sm" onClick={() => { navigate('/profile'); setMobileOpen(false); }}>
+                                <UserCog className="mr-2 h-4 w-4" /> Profile
+                              </Button>
+                              <Button variant="outline" className="w-full rounded-full h-9 text-sm" onClick={() => { navigate('/dashboard'); setMobileOpen(false); }}>
+                                <Package className="mr-2 h-4 w-4" /> My Orders
+                              </Button>
+                              {isAdmin && (
+                                <Button variant="outline" className="w-full rounded-full h-9 text-sm" onClick={() => { navigate('/admin'); setMobileOpen(false); }}>
+                                  <Shield className="mr-2 h-4 w-4" /> Admin
+                                </Button>
+                              )}
+                            </div>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
                     </div>
                   ) : (
                     <Button className="w-full rounded-full h-10 text-sm" onClick={() => { navigate('/auth'); setMobileOpen(false); }}>
@@ -313,8 +349,8 @@ export default function Navbar() {
           {/* Center: Logo */}
           <Link to="/" className="flex-1 flex justify-center mx-1 min-w-0">
             <div className="flex flex-col items-center leading-none">
-              <span className="text-base sm:text-lg font-display font-bold text-primary">PANDIYIN</span>
-              <span className="text-[9px] sm:text-[10px] tracking-[0.15em] text-muted-foreground font-medium -mt-0.5">Nature In Pack</span>
+              <span className="text-base sm:text-lg font-display font-bold text-primary truncate">PANDIYIN</span>
+              <span className="text-[8px] sm:text-[9px] text-muted-foreground tracking-wider">Nature In Pack</span>
             </div>
           </Link>
 
@@ -479,31 +515,39 @@ export default function Navbar() {
               animate={{ y: 0, opacity: 1 }}
               exit={{ y: -20, opacity: 0 }}
               transition={{ duration: 0.3 }}
-              className="absolute top-0 left-0 right-0 bg-white pt-3 pb-4 shadow-lg"
+              className="absolute top-0 left-0 right-0 bg-white pt-4 pb-5 shadow-xl rounded-b-2xl"
               onClick={(e) => e.stopPropagation()}
             >
-              <div className="mx-auto px-3 sm:px-4">
+              <div className="mx-auto px-4">
                 <form onSubmit={e => { handleSearch(e); setMobileSearchOpen(false); }} ref={mobileSearchRef} className="relative space-y-2">
-                  <div className="relative flex items-center gap-2">
-                    <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground flex-shrink-0" />
-                    <Input
+                  <div className="relative flex items-center gap-2 bg-gray-100 rounded-full px-4 py-2 ring-1 ring-gray-200 focus-within:ring-2 focus-within:ring-primary/40 transition-all">
+                    <Search className="h-5 w-5 text-muted-foreground flex-shrink-0" />
+                    <input
                       ref={mobileSearchInputRef}
-                      placeholder="Search products..."
+                      placeholder="Search for products..."
                       value={searchQuery}
                       onChange={e => setSearchQuery(e.target.value)}
                       onFocus={() => searchQuery.trim().length >= 2 && setShowSuggestions(true)}
                       onClick={() => searchQuery.trim().length >= 2 && setShowSuggestions(true)}
                       onKeyDown={(e) => e.key === 'Escape' && setMobileSearchOpen(false)}
-                      className="pl-9 h-10"
+                      className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground/60 outline-none"
                       autoComplete="off"
                     />
-                    {searchQuery && (
+                    {searchQuery ? (
                       <button
                         type="button"
                         className="text-muted-foreground hover:text-foreground transition-colors flex-shrink-0"
                         onClick={() => setSearchQuery('')}
                       >
-                        <X className="h-5 w-5" />
+                        <X className="h-4 w-4" />
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        className="text-muted-foreground hover:text-foreground transition-colors flex-shrink-0"
+                        onClick={() => setMobileSearchOpen(false)}
+                      >
+                        <X className="h-4 w-4" />
                       </button>
                     )}
                   </div>

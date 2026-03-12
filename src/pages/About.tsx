@@ -11,6 +11,7 @@ import {
   Handshake,
 } from 'lucide-react';
 import { Separator } from '@/components/ui/separator';
+import SEOHead from '@/components/SEOHead';
 
 const fadeUp = {
   initial: { opacity: 0, y: 20 },
@@ -18,34 +19,6 @@ const fadeUp = {
   viewport: { once: true, amount: 0.2 },
   transition: { duration: 0.5, ease: cubicBezier(0.22, 0.61, 0.36, 1) },
 };
-
-const timeline = [
-  {
-    year: '2020',
-    title: 'Founded in Madurai',
-    desc: 'Established with a commitment to reviving Tamil Nadu food practices.',
-  },
-  {
-    year: '2021',
-    title: 'First Products Launch',
-    desc: 'Introduced signature pickles to regional markets.',
-  },
-  {
-    year: '2022',
-    title: 'Portfolio Expansion',
-    desc: 'Added health mixes and millets, partnering with local artisans.',
-  },
-  {
-    year: '2023',
-    title: 'National Distribution',
-    desc: 'Launched e-commerce platform for India-wide delivery.',
-  },
-  {
-    year: '2024',
-    title: 'Growth Milestone',
-    desc: 'Reached 5,000+ customers with consistent quality.',
-  },
-];
 
 const coreValues = [
   {
@@ -98,6 +71,10 @@ function InfoCard({ icon: Icon, title, children }: InfoCardProps) {
 export default function About() {
   return (
     <div className="container mx-auto px-4 pt-24 pb-20 max-w-5xl">
+      <SEOHead
+        title="About Us - PANDIYIN"
+        description="Learn about PANDIYIN Nature In Pack — authentic homemade foods from Madurai, Tamil Nadu. Traditional recipes, clean ingredients, heritage methods."
+      />
       {/* Hero */}
       <motion.section {...fadeUp} className="text-center mb-24">
         <Leaf className="h-16 w-16 mx-auto text-primary mb-6" aria-hidden="true" />
@@ -120,50 +97,6 @@ export default function About() {
           <p>
             Our approach is built on transparency and community. We work directly with local farmers and skilled artisans who bring deep expertise to each batch. From ingredient selection to final packaging, we maintain strict standards while supporting the people and practices that make our work possible.
           </p>
-        </div>
-      </motion.section>
-
-      <Separator className="mb-24" />
-
-      {/* Timeline */}
-      <motion.section {...fadeUp} className="mb-24">
-        <h2 className="text-3xl md:text-4xl font-display font-bold text-center mb-14">
-          Our Journey
-        </h2>
-        <div className="relative max-w-4xl mx-auto">
-          <div
-            className="absolute left-4 md:left-1/2 top-0 bottom-0 w-px bg-border md:-translate-x-px"
-            aria-hidden="true"
-          />
-          {timeline.map((item, i) => (
-            <motion.div
-              key={item.year}
-              initial={{ opacity: 0, x: i % 2 === 0 ? -24 : 24 }}
-              whileInView={{ opacity: 1, x: 0 }}
-              viewport={{ once: true, amount: 0.3 }}
-              transition={{ delay: i * 0.08, duration: 0.5, ease: cubicBezier(0.22, 0.61, 0.36, 1) }}
-              className={`relative flex items-start mb-12 last:mb-0 ${
-                i % 2 === 0 ? 'md:flex-row' : 'md:flex-row-reverse'
-              }`}
-            >
-              <div className="hidden md:block md:w-1/2" />
-              <div
-                className="absolute left-4 md:left-1/2 w-3.5 h-3.5 bg-primary rounded-full -translate-x-[7px] md:-translate-x-[7px] mt-1.5 border-[3px] border-background shadow-sm z-10"
-                aria-hidden="true"
-              />
-              <div
-                className={`pl-12 md:pl-0 md:w-1/2 md:px-10 ${
-                  i % 2 === 0 ? 'md:text-right' : 'md:text-left'
-                }`}
-              >
-                <span className="inline-block text-primary font-bold text-sm tracking-wider mb-2 uppercase">
-                  {item.year}
-                </span>
-                <h3 className="font-semibold text-lg md:text-xl mb-2 text-foreground">{item.title}</h3>
-                <p className="text-sm md:text-base text-muted-foreground leading-relaxed">{item.desc}</p>
-              </div>
-            </motion.div>
-          ))}
         </div>
       </motion.section>
 

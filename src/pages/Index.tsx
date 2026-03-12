@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import type { TouchEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
@@ -6,19 +6,36 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowRight, Leaf, Truck, ShieldCheck, ChevronLeft, ChevronRight, ShoppingCart } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { CartReminderPopup } from '@/components/CartReminderPopup';
 import TrustBadges from '@/components/TrustBadges';
+import SEOHead, { buildOrganizationSchema, buildWebSiteSchema } from '@/components/SEOHead';
 import { useAuth } from '@/hooks/useAuth';
 import { useCart } from '@/hooks/useCart';
 import { supabase } from '@/integrations/supabase/client';
 import favicon from '@/public/Pandiyin.ico';
 import { formatPrice } from '@/lib/formatters';
 
-// Optimized banner fetch function
+const BANNER_CACHE_KEY = 'hero_banner_url';
+const BANNER_DATA_CACHE_KEY = 'hero_banners_data';
+
+// Read cached banner data synchronously (runs once at module load)
+function getCachedBanners(): Array<{ id: string; title: string; image_url: string; link_url: string | null }> | undefined {
+  try {
+    const raw = localStorage.getItem(BANNER_DATA_CACHE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    }
+  } catch (e) { /* ignore */ }
+  return undefined;
+}
+
+// Optimized banner fetch function — uses public view for universal access
 const fetchBanners = async () => {
   const { data, error } = await supabase
-    .from('banners')
+    .from('public_banners')
     .select('id, title, image_url, link_url')
     .eq('is_active', true)
     .order('sort_order');
@@ -41,38 +58,74 @@ export default function Index() {
   const { user } = useAuth();
   const { items: cartItems, addToCart } = useCart();
 
+  // Read cached banners from localStorage at mount time (synchronous, zero latency)
+  // This provides instant data so the hero banner renders on the very first frame
+  const cachedBanners = useMemo(() => getCachedBanners(), []);
+
   // React Query hook for optimized banner fetching with caching
+  // placeholderData: renders cached localStorage banners instantly while Supabase responds
   // staleTime: 30 minutes - banner data considered fresh for 30 mins
-  // refetchOnWindowFocus: false - don't refetch when window regains focus
-  // This ensures banners load instantly on repeat visits from cache
   const { data: banners = [], isLoading: bannersLoading } = useQuery({
     queryKey: ['banners'],
     queryFn: fetchBanners,
     staleTime: 30 * 60 * 1000, // 30 minutes
     gcTime: 60 * 60 * 1000, // 1 hour (formerly cacheTime)
     refetchOnWindowFocus: false,
+    placeholderData: cachedBanners, // Renders instantly from localStorage cache
   });
 
-  // Preload hero banner AFTER banners are fetched from React Query
-  // This forces browser to load the hero banner immediately via CDN
-  // Happens BEFORE rendering, so image loads in parallel with component render
+  const handleImageLoad = useCallback((bannerId: string) => {
+    setLoadedImages(prev => ({ ...prev, [bannerId]: true }));
+  }, []);
+
+  // Cache banner data + image URL in localStorage for instant preloading on next visit
   useEffect(() => {
     if (!banners || banners.length === 0) return;
     
     const heroBanner = banners[0];
     if (!heroBanner.image_url) return;
 
-    const link = document.createElement('link');
-    link.rel = 'preload';
-    link.as = 'image';
-    link.href = heroBanner.image_url;
-    link.type = 'image/webp';
-    document.head.appendChild(link);
+    // Cache the full banner data array for instant rendering on next visit
+    try {
+      localStorage.setItem(BANNER_CACHE_KEY, heroBanner.image_url);
+      localStorage.setItem(BANNER_DATA_CACHE_KEY, JSON.stringify(banners));
+    } catch (e) {
+      // localStorage may not be available
+    }
 
-    return () => {
-      document.head.removeChild(link);
-    };
+    // For current session: inject preload link if not already preloaded via cache
+    const existingPreload = document.querySelector(`link[rel="preload"][href="${CSS.escape(heroBanner.image_url)}"]`);
+    if (!existingPreload) {
+      const link = document.createElement('link');
+      link.rel = 'preload';
+      link.as = 'image';
+      link.href = heroBanner.image_url;
+      link.type = 'image/webp';
+      document.head.appendChild(link);
+
+      return () => {
+        if (link.parentNode) document.head.removeChild(link);
+      };
+    }
   }, [banners]);
+
+  // Check if hero banner was pre-loaded via main.tsx Image() cache strategy
+  // Handles both already-complete and still-loading cases (fixes race condition)
+  useEffect(() => {
+    if (!banners || banners.length === 0) return;
+    const preloadedImg = (window as any).__heroBannerPreloaded as HTMLImageElement | undefined;
+    if (!preloadedImg || preloadedImg.src !== banners[0].image_url) return;
+
+    if (preloadedImg.complete && preloadedImg.naturalWidth > 0) {
+      // Image already finished loading
+      handleImageLoad(banners[0].id);
+    } else {
+      // Image still loading — listen for completion
+      const onLoad = () => handleImageLoad(banners[0].id);
+      preloadedImg.addEventListener('load', onLoad, { once: true });
+      return () => preloadedImg.removeEventListener('load', onLoad);
+    }
+  }, [banners, handleImageLoad]);
 
   // Fetch featured products (OPTIMIZED: Non-blocking, loads in background)
   // OLD: This blocked page render until ALL featured products loaded
@@ -81,8 +134,8 @@ export default function Index() {
   const [featuredLoading, setFeaturedLoading] = useState(true);
   
   useEffect(() => {
-    // Start loading featured products WITHOUT blocking render
-    // They'll appear shortly as data arrives
+    // Defer featured products loading to prioritize hero banner
+    // Uses requestIdleCallback (or 150ms fallback) so banner gets network priority
     const loadFeatured = async () => {
       try {
         setFeaturedLoading(true);
@@ -103,7 +156,12 @@ export default function Index() {
       }
     };
 
-    loadFeatured();
+    // Defer: let hero banner load first
+    if ('requestIdleCallback' in window) {
+      (window as any).requestIdleCallback(() => loadFeatured(), { timeout: 300 });
+    } else {
+      setTimeout(loadFeatured, 150);
+    }
   }, []);
 
   // Favicon setup
@@ -141,10 +199,6 @@ export default function Index() {
       });
     }, 600);
   };
-
-  const handleImageLoad = useCallback((bannerId: string) => {
-    setLoadedImages(prev => ({ ...prev, [bannerId]: true }));
-  }, []);
 
   // Auto-rotate banners every 5 seconds
   useEffect(() => {
@@ -232,9 +286,15 @@ export default function Index() {
 
   return (
     <>
+      <SEOHead
+        title="PANDIYIN - Nature In Pack | Homemade Foods from Madurai"
+        description="Authentic homemade foods from Madurai. Traditional pickles, snacks, spice powders, and sweets. 100% natural, no preservatives. Free shipping above ₹799."
+        ogType="website"
+        jsonLd={[buildOrganizationSchema(), buildWebSiteSchema()]}
+      />
       {/* Professional Banner Carousel - Hero Banner */}
       {banners.length > 0 ? (
-        <section className="relative w-full h-[400px] md:h-[500px] lg:h-[600px] overflow-hidden group pt-16 md:pt-0">
+        <section className="relative w-full h-[400px] md:h-[500px] lg:h-[600px] overflow-hidden group pt-16 lg:pt-0" style={{ containIntrinsicSize: '100vw 500px', contentVisibility: 'visible' }}>
           <div
             className="relative w-full h-full touch-pan-y select-none cursor-grab active:cursor-grabbing"
             onTouchStart={handleTouchStart}
@@ -242,16 +302,21 @@ export default function Index() {
             onTouchEnd={handleTouchEnd}
             style={{ touchAction: 'pan-y' }}
           >
-            {banners.map((banner, index) => (
+            {banners.map((banner, index) => {
+              // Hero banner (index 0): skip animation if image is already pre-loaded
+              const isHero = index === 0;
+              const isPreloaded = isHero && loadedImages[banner.id];
+              
+              return (
               <motion.div
                 key={banner.id}
-                initial={{ opacity: 0 }}
+                initial={{ opacity: isPreloaded ? 1 : 0 }}
                 animate={{ opacity: index === currentBannerIndex ? 1 : 0 }}
-                transition={{ duration: 0.3 }} // Optimized: simple 300ms fade-in only
+                transition={{ duration: isPreloaded && index === currentBannerIndex ? 0 : 0.3 }}
                 className="absolute inset-0"
                 style={{ pointerEvents: index === currentBannerIndex ? 'auto' : 'none' }}
               >
-                {/* Loading Skeleton - Shows if banner takes >200ms */}
+                {/* Loading Skeleton - Shows while banner image loads */}
                 {!loadedImages[banner.id] && (
                   <Skeleton className="absolute inset-0 w-full h-full" />
                 )}
@@ -263,12 +328,15 @@ export default function Index() {
                         src={banner.image_url} 
                         alt={banner.title} 
                         onLoad={() => handleImageLoad(banner.id)}
-                        // Hero banner (index 0): eager + high priority for instant load
-                        // Other banners: lazy loading to avoid blocking hero
-                        loading={index === 0 ? 'eager' : 'lazy'}
+                        loading={isHero ? 'eager' : 'lazy'}
                         // @ts-expect-error - fetchpriority is valid HTML5 attribute, React types not updated yet
-                        fetchpriority={index === 0 ? 'high' : 'low'}
-                        className={`w-full h-full object-cover transition-opacity duration-500 ${loadedImages[banner.id] ? 'opacity-100' : 'opacity-0'}`}
+                        fetchpriority={isHero ? 'high' : 'low'}
+                        decoding={isHero ? 'sync' : 'async'}
+                        className={`w-full h-full object-cover ${
+                          isPreloaded 
+                            ? 'opacity-100' 
+                            : `transition-opacity duration-500 ${loadedImages[banner.id] ? 'opacity-100' : 'opacity-0'}`
+                        }`}
                       />
                       <div className="absolute inset-0 bg-black/20" />
                     </div>
@@ -279,18 +347,22 @@ export default function Index() {
                       src={banner.image_url} 
                       alt={banner.title}  
                       onLoad={() => handleImageLoad(banner.id)}
-                      // Hero banner (index 0): eager + high priority for instant load
-                      // Other banners: lazy loading to avoid blocking hero
-                      loading={index === 0 ? 'eager' : 'lazy'}
+                      loading={isHero ? 'eager' : 'lazy'}
                       // @ts-expect-error - fetchpriority is valid HTML5 attribute, React types not updated yet
-                      fetchpriority={index === 0 ? 'high' : 'low'}
-                      className={`w-full h-full object-cover transition-opacity duration-500 ${loadedImages[banner.id] ? 'opacity-100' : 'opacity-0'}`}
+                      fetchpriority={isHero ? 'high' : 'low'}
+                      decoding={isHero ? 'sync' : 'async'}
+                      className={`w-full h-full object-cover ${
+                        isPreloaded 
+                          ? 'opacity-100' 
+                          : `transition-opacity duration-500 ${loadedImages[banner.id] ? 'opacity-100' : 'opacity-0'}`
+                      }`}
                     />
                     <div className="absolute inset-0 bg-black/20" />
                   </div>
                 )}
               </motion.div>
-            ))}
+            );
+            })}
             
             {/* Navigation Arrows - Show on Hover */}
             {banners.length > 1 && (
@@ -335,6 +407,11 @@ export default function Index() {
             )}
           </div>
         </section>
+      ) : bannersLoading ? (
+        /* Fixed-height skeleton placeholder prevents layout shift while banners load */
+        <section className="relative w-full h-[400px] md:h-[500px] lg:h-[600px] overflow-hidden pt-16 lg:pt-0">
+          <Skeleton className="absolute inset-0 w-full h-full" />
+        </section>
       ) : null}
 
       {/* Trust Badges Scrolling Strip - Separated with spacing */}
@@ -344,34 +421,40 @@ export default function Index() {
 
       {/* Featured Products */}
       {featured.length > 0 && (
-        <section className="py-16 bg-secondary/30">
+        <section className="py-10 md:py-16 bg-secondary/30">
           <div className="container mx-auto px-4">
-            <div className="flex items-center justify-between mb-10">
-              <h2 className="text-3xl font-display font-bold">Bestsellers</h2>
-              <Button asChild variant="ghost"><Link to="/products">View All <ArrowRight className="ml-1 h-4 w-4" /></Link></Button>
+            <div className="flex items-center justify-between mb-6 md:mb-10">
+              <h2 className="text-2xl md:text-3xl font-display font-bold">Bestsellers</h2>
+              <Button asChild variant="ghost" size="sm"><Link to="/products">View All <ArrowRight className="ml-1 h-4 w-4" /></Link></Button>
             </div>
-            <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-6">
               {featured.map((p, i) => (
                 <motion.div key={p.id} initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ delay: i * 0.08 }} className="h-full">
                   <Link to={`/products/${p.id}`} className="h-full block">
                     <Card className="overflow-hidden hover:shadow-lg transition-shadow group h-full flex flex-col border-0 shadow-sm">
-                      <div className="h-52 md:h-56 lg:h-64 w-full bg-muted flex items-center justify-center overflow-hidden relative">
+                      <div className="h-40 md:h-56 lg:h-64 w-full bg-muted flex items-center justify-center overflow-hidden relative">
                         {p.image_url ? (
                           <img src={p.image_url} alt={p.name} className="w-full h-full object-cover object-center rounded-lg group-hover:scale-105 transition-transform duration-500" />
                         ) : (
                           <Leaf className="h-12 w-12 text-muted-foreground/30" />
                         )}
+                        {p.stock_quantity <= 5 && p.stock_quantity > 0 && (
+                          <Badge className="absolute top-2 right-2 bg-amber-500 hover:bg-amber-600 text-white text-[10px] md:text-xs border-0 shadow-sm">Few Left</Badge>
+                        )}
+                        {p.stock_quantity === 0 && (
+                          <Badge variant="destructive" className="absolute top-2 right-2 text-[10px] md:text-xs border-0 shadow-sm">Out of Stock</Badge>
+                        )}
                       </div>
-                      <CardContent className="p-4 flex-1 flex flex-col">
+                      <CardContent className="p-3 md:p-4 flex-1 flex flex-col">
                         <div>
-                          <p className="text-xs text-muted-foreground mb-1">{(p as any).categories?.name}</p>
-                          <h3 className="font-semibold text-base font-sans line-clamp-2 mb-1.5 leading-tight group-hover:text-primary transition-colors">{p.name}</h3>
-                          {p.weight && <p className="text-xs text-muted-foreground mb-2">{p.weight}{p.unit ? ` ${p.unit}` : ''}</p>}
+                          <p className="text-[10px] md:text-xs text-muted-foreground mb-0.5 md:mb-1">{(p as any).categories?.name}</p>
+                          <h3 className="font-semibold text-sm md:text-base font-sans line-clamp-2 mb-1 leading-tight group-hover:text-primary transition-colors">{p.name}</h3>
+                          {p.weight && <p className="text-[10px] md:text-xs text-muted-foreground mb-1 md:mb-2">{p.weight}{p.unit ? ` ${p.unit}` : ''}</p>}
                         </div>
-                        <div className="flex items-center justify-between gap-2 mb-3">
-                          <div className="flex items-center gap-2">
-                            <span className="font-medium text-lg text-primary">{formatPrice(p.price)}</span>
-                            {p.compare_price && <span className="text-sm text-muted-foreground line-through">{formatPrice(p.compare_price)}</span>}
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 mb-2 md:mb-3">
+                          <div className="flex items-center gap-1.5 md:gap-2">
+                            <span className="font-medium text-base md:text-lg text-primary">{formatPrice(p.price)}</span>
+                            {p.compare_price && <span className="text-xs md:text-sm text-muted-foreground line-through">{formatPrice(p.compare_price)}</span>}
                           </div>
                           {p.average_rating !== null && p.average_rating !== undefined && Number(p.average_rating) > 0 && (
                             <span className="flex items-center gap-1 text-sm font-medium text-slate-600">

@@ -9,6 +9,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
 import { formatPrice } from '@/lib/formatters';
 import { Loader } from '@/components/ui/loader';
+import SEOHead from '@/components/SEOHead';
 
 const statusColors: Record<string, string> = {
   pending: 'bg-yellow-100 text-yellow-800',
@@ -57,6 +58,7 @@ export default function Dashboard() {
 
   return (
     <div className="container mx-auto px-4 pt-24 pb-8 max-w-3xl">
+      <SEOHead title="My Orders" description="View and track your orders at PANDIYIN." noindex />
       <h1 className="text-3xl font-display font-bold mb-8">My Orders</h1>
       {orders.length === 0 ? (
         <div className="text-center py-16">
@@ -97,6 +99,11 @@ export default function Dashboard() {
                           <Badge className={`${statusColors[o.status] || ''} text-xs`}>{o.status}</Badge>
                           <span className="font-medium text-sm">{formatPrice(o.total)}</span>
                         </div>
+                        {o.tracking_id && o.tracking_id !== '' && (
+                          <p className="text-xs text-primary font-medium mt-1 flex items-center gap-1">
+                            <Package className="h-3 w-3" /> Tracking: {o.tracking_id}
+                          </p>
+                        )}
                       </div>
                       <ChevronRight className="h-5 w-5 text-muted-foreground flex-shrink-0" />
                     </CardContent>

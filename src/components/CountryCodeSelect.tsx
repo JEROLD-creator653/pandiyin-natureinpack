@@ -28,7 +28,7 @@ interface CountryCodeSelectProps {
 export default function CountryCodeSelect({ value, onChange }: CountryCodeSelectProps) {
   return (
     <Select value={value} onValueChange={onChange}> 
-      <SelectTrigger className="w-[90px] shrink-0 rounded-r-none border-r-0 h-12 text-sm bg-background focus-visible:ring-2 focus-visible:ring-green-700/40 focus-visible:ring-offset-0 outline-none">
+      <SelectTrigger className="w-[90px] shrink-0 rounded-r-none border-r-0 h-12 text-sm bg-background focus:border-ring focus:ring-1 focus:ring-ring focus:ring-inset outline-none">
         <SelectValue>
           {COUNTRY_CODES.find(c => c.code === value)?.flag} {value}
         </SelectValue>

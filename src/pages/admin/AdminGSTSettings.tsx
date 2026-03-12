@@ -97,7 +97,7 @@ export default function AdminGSTSettings() {
         data || {
           id: '',
           business_name: 'Pandiyin Organic',
-          business_address: 'Madurai, Tamil Nadu',
+          business_address: '',
           state: 'Tamil Nadu',
           gst_number: '',
           gst_enabled: true,

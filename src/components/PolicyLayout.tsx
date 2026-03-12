@@ -1,6 +1,8 @@
 import { useEffect, useMemo } from 'react';
 import { memo } from 'react';
 import { motion } from 'framer-motion';
+import { useStoreSettings } from '@/hooks/useStoreSettings';
+import SEOHead from '@/components/SEOHead';
 
 interface PolicyLayoutProps {
   title: string;
@@ -9,20 +11,23 @@ interface PolicyLayoutProps {
 }
 
 function PolicyLayout({ title, lastUpdated, content }: PolicyLayoutProps) {
+  const { data: store } = useStoreSettings();
+  
+  // Substitute {{EMAIL}}, {{PHONE}}, {{ADDRESS}} placeholders with actual store settings
+  const resolvedContent = useMemo(() => {
+    return content
+      .replace(/\{\{EMAIL\}\}/g, store?.email || '—')
+      .replace(/\{\{PHONE\}\}/g, store?.phone || '—')
+      .replace(/\{\{ADDRESS\}\}/g, store?.address || '—');
+  }, [content, store]);
+
   useEffect(() => {
     window.scrollTo(0, 0);
-    // Update page title for SEO
-    document.title = `${title} | Pandiyin`;
-    // Update meta description
-    const metaDescription = document.querySelector('meta[name="description"]');
-    if (metaDescription) {
-      metaDescription.setAttribute('content', `${title} for Pandiyin Nature In Pack`);
-    }
   }, [title]);
 
   // Memoize content formatting to avoid recalculation
   const formattedSections = useMemo(() => {
-    const sections = content.split('\n\n').map((section, index) => {
+    const sections = resolvedContent.split('\n\n').map((section, index) => {
       const lines = section.split('\n');
       const firstLine = lines[0];
       const isHeading = /^\d+\.|^[A-Z]/.test(firstLine) && !firstLine.includes('.');
@@ -78,7 +83,7 @@ function PolicyLayout({ title, lastUpdated, content }: PolicyLayoutProps) {
     });
 
     return sections.filter(Boolean);
-  }, [content, title]);
+  }, [resolvedContent, title]);
 
   return (
     <motion.div
@@ -87,6 +92,7 @@ function PolicyLayout({ title, lastUpdated, content }: PolicyLayoutProps) {
       transition={{ duration: 0.5 }}
       className="min-h-screen bg-background pt-28 pb-16"
     >
+      <SEOHead title={title} description={`${title} for PANDIYIN Nature In Pack - Authentic homemade foods from Madurai.`} />
       <div className="container mx-auto px-4 max-w-3xl">
         {/* Header */}
         <div className="mb-12">
@@ -111,13 +117,13 @@ function PolicyLayout({ title, lastUpdated, content }: PolicyLayoutProps) {
           </p>
           <div className="space-y-2 text-sm">
             <p className="text-muted-foreground">
-              <strong className="text-foreground">Email:</strong> pandiyinnatureinpack@gmail.com
+              <strong className="text-foreground">Email:</strong> {store?.email || '—'}
             </p>
             <p className="text-muted-foreground">
-              <strong className="text-foreground">Phone:</strong> 6383709933
+              <strong className="text-foreground">Phone:</strong> {store?.phone || '—'}
             </p>
             <p className="text-muted-foreground">
-              <strong className="text-foreground">Address:</strong> 802, VPM House, Mandhaikaliamman Kovil Street, Krishnapuram Road, M. Kallupatti, Madurai District - 625535, Tamil Nadu, India
+              <strong className="text-foreground">Address:</strong> {store?.address || '—'}
             </p>
           </div>
         </div>

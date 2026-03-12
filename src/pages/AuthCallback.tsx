@@ -16,24 +16,41 @@ export default function AuthCallback() {
         if (sessionError) {
           console.error('Session error:', sessionError);
           setError(true);
-          setTimeout(() => navigate('/auth'), 2000);
+          // If in popup, close after delay; otherwise redirect
+          if (window.opener) {
+            setTimeout(() => window.close(), 2000);
+          } else {
+            setTimeout(() => navigate('/auth'), 2000);
+          }
           return;
         }
 
         if (session) {
-          // Session exists, user is authenticated
           console.log('Authentication successful');
+          // If opened as popup, close it — the opener's onAuthStateChange handles the rest
+          if (window.opener) {
+            window.close();
+            return;
+          }
+          // Fallback: full-page redirect flow
           navigate('/', { replace: true });
         } else {
-          // No session found
           console.log('No session found');
           setError(true);
-          setTimeout(() => navigate('/auth'), 2000);
+          if (window.opener) {
+            setTimeout(() => window.close(), 2000);
+          } else {
+            setTimeout(() => navigate('/auth'), 2000);
+          }
         }
       } catch (err) {
         console.error('Auth callback error:', err);
         setError(true);
-        setTimeout(() => navigate('/auth'), 2000);
+        if (window.opener) {
+          setTimeout(() => window.close(), 2000);
+        } else {
+          setTimeout(() => navigate('/auth'), 2000);
+        }
       }
     };
 

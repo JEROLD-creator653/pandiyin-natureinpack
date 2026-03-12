@@ -17,7 +17,7 @@
 - Loading spinner appears in all fields
 - Fields are disabled during fetch
 - After fetch, values auto-fill
-- Form becomes editable again
+- Form becomes editable agai
 
 ---
 

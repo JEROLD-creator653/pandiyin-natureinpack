@@ -1,8 +1,28 @@
+# PANDIYIN - Nature In Pack
+# https://pandiyin-natureinpack.vercel.app
+
 User-agent: Googlebot
 Allow: /
+Disallow: /admin
+Disallow: /auth
+Disallow: /checkout
+Disallow: /cart
+Disallow: /dashboard
+Disallow: /profile
+Disallow: /order-confirmation
+Disallow: /orders
 
 User-agent: Bingbot
 Allow: /
+Disallow: /admin
+Disallow: /auth
+Disallow: /checkout
+Disallow: /cart
+Disallow: /dashboard
+Disallow: /profile
+Disallow: /order-confirmation
+Disallow: /orders
+Crawl-delay: 1
 
 User-agent: Twitterbot
 Allow: /
@@ -12,3 +32,18 @@ Allow: /
 
 User-agent: *
 Allow: /
+Disallow: /admin
+Disallow: /auth
+Disallow: /checkout
+Disallow: /cart
+Disallow: /dashboard
+Disallow: /profile
+Disallow: /order-confirmation
+Disallow: /orders
+Disallow: /*?session=
+Disallow: /*?token=
+Disallow: /*?ref=
+Crawl-delay: 2
+
+# Sitemap
+Sitemap: https://pandiyin-natureinpack.vercel.app/sitemap.xml
