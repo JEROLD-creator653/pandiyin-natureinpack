@@ -83,14 +83,13 @@ export default function Auth() {
     try {
       const { error } = await signInWithGoogle();
       if (error) throw error;
-      // Popup closed — session picked up by onAuthStateChange → user state updates → auto-redirect
+      // Redirect flow — browser navigates to Google, then back to /auth/callback
     } catch (err: any) {
       toast({
         title: "Error",
         description: err.message || "Failed to sign in with Google",
         variant: "destructive",
       });
-    } finally {
       setGoogleLoading(false);
     }
   };

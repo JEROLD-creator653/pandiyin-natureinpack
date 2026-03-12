@@ -14,48 +14,77 @@ const STATE_ZONES: Record<string, string> = {};
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders });
+    return new Response(JSON.stringify({ message: 'CORS preflight' }), { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
   }
 
   try {
-    // Verify auth
-    const authHeader = req.headers.get('Authorization');
+    console.log('verify-order: Incoming request:', req.method);
+
+    // Extract auth header
+    const authHeader = req.headers.get('authorization') ?? req.headers.get('Authorization');
+    console.log('verify-order: Auth header present:', !!authHeader);
     if (!authHeader) {
-      return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      console.error('verify-order: No authorization header');
+      return new Response(JSON.stringify({ error: 'Unauthorized: no auth header' }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    }
+    const jwt = authHeader.replace(/^Bearer\s+/i, '').trim();
+    if (!jwt) {
+      console.error('verify-order: Empty JWT token');
+      return new Response(JSON.stringify({ error: 'Unauthorized: empty token' }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-    const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
 
-    // Verify user
-    const userClient = createClient(supabaseUrl, supabaseAnonKey, {
-      global: { headers: { Authorization: authHeader } },
-    });
-    const { data: { user }, error: authError } = await userClient.auth.getUser();
-    if (authError || !user) {
-      return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    if (!supabaseUrl || !supabaseServiceKey) {
+      console.error('verify-order: Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY');
+      return new Response(JSON.stringify({ error: 'Server configuration error' }), { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
-    const { cart_items, delivery_state, coupon_code } = await req.json();
+    // Use the service role client for admin operations
+    const adminClient = createClient(supabaseUrl, supabaseServiceKey);
+
+    // Verify user token using service role (most reliable method)
+    const { data: { user }, error: authError } = await adminClient.auth.getUser(jwt);
+    if (authError || !user) {
+      console.error('verify-order: Auth error:', authError?.message || 'No user returned');
+      return new Response(JSON.stringify({ error: 'Unauthorized: invalid token' }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    }
+    console.log('verify-order: Authenticated user:', user.id);
+
+    // Parse request body
+    let body: any;
+    try {
+      body = await req.json();
+    } catch (parseErr) {
+      console.error('verify-order: JSON parse error:', parseErr);
+      return new Response(JSON.stringify({ error: 'Invalid request body' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    }
+
+    const { cart_items, delivery_state, coupon_code } = body;
 
     if (!cart_items || !Array.isArray(cart_items) || cart_items.length === 0) {
+      console.error('Cart validation failed: cart_items missing or empty');
       return new Response(JSON.stringify({ error: 'Cart is empty' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
     if (!delivery_state || typeof delivery_state !== 'string') {
+      console.error('Delivery state validation failed: delivery_state missing or invalid');
       return new Response(JSON.stringify({ error: 'Delivery state is required' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
-    const adminClient = createClient(supabaseUrl, supabaseServiceKey);
-
     // Fetch latest product data
     const productIds = cart_items.map((i: any) => i.product_id);
+    console.log('verify-order: Fetching products:', productIds.length, 'items');
     const { data: products, error: prodErr } = await adminClient
       .from('products')
       .select('id, price, stock_quantity, is_available, weight_kg, gst_percentage, hsn_code, tax_inclusive, name')
       .in('id', productIds);
 
-    if (prodErr) throw prodErr;
+    if (prodErr) {
+      console.error('verify-order: Product fetch error:', prodErr);
+      return new Response(JSON.stringify({ error: 'Failed to fetch products' }), { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    }
 
     const productMap = new Map(products?.map(p => [p.id, p]) || []);
 
@@ -100,6 +129,7 @@ serve(async (req) => {
     }
 
     if (errors.length > 0) {
+      console.warn('Product validation errors:', errors);
       return new Response(JSON.stringify({ valid: false, errors }), { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
@@ -146,6 +176,7 @@ serve(async (req) => {
           ? (subtotal * Number(validation.discount_value)) / 100
           : Number(validation.discount_value);
       } else if (couponErr || !couponData || couponData.length === 0 || !couponData[0].is_valid) {
+        console.warn('Coupon validation failed:', couponErr, couponData);
         return new Response(JSON.stringify({
           valid: false,
           errors: [couponData?.[0]?.error_message || 'Invalid coupon']
@@ -170,7 +201,8 @@ serve(async (req) => {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   } catch (err: any) {
-    return new Response(JSON.stringify({ error: err.message || 'Internal error' }), {
+    console.error('verify-order: Unhandled error:', err?.message || err);
+    return new Response(JSON.stringify({ error: err?.message || 'Internal error' }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });

@@ -250,7 +250,7 @@ export default function Checkout() {
       const token = sessionData?.session?.access_token;
 
       const res = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/razorpay-order`,
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/razorpay-create-order`,
         {
           method: 'POST',
           headers: {
@@ -287,7 +287,7 @@ export default function Checkout() {
         handler: async (response: any) => {
           try {
             const verifyRes = await fetch(
-              `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/razorpay-verify`,
+              `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/razorpay-verify-payment`,
               {
                 method: 'POST',
                 headers: {
@@ -361,8 +361,47 @@ export default function Checkout() {
     setLoading(true);
 
     // Backend verification: validate prices, stock, and delivery charge server-side
+    setCheckoutError(null);
+    if (!selectedAddress || !selectedAddress.full_name || !selectedAddress.phone || !selectedAddress.address_line1 || !selectedAddress.pincode) {
+      setCheckoutError('Please select or add a delivery address');
+      return;
+    }
+    if (!selectedAddress.state) {
+      setCheckoutError('Address missing state info. Please update your address with a valid pincode.');
+      return;
+    }
+    if (!agreementChecked) {
+      setCheckoutError('Please agree to our Terms of Service, Return Policy and Shipping Policy to proceed.');
+      return;
+    }
+    setLoading(true);
+
+    // Backend verification: validate prices, stock, and delivery charge server-side
     try {
+      // Always refresh session to get a fresh JWT before calling edge functions
+      const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession();
+      if (refreshError || !refreshData?.session) {
+        // Fallback: try getSession
+        const { data: sessionData } = await supabase.auth.getSession();
+        if (!sessionData?.session) {
+          setCheckoutError('Your session has expired. Please sign in again.');
+          setLoading(false);
+          navigate('/auth');
+          return;
+        }
+      }
+
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      if (!token) {
+        setCheckoutError('Authentication token missing. Please sign in again.');
+        setLoading(false);
+        navigate('/auth');
+        return;
+      }
+
       const { data: verifyResult, error: verifyError } = await supabase.functions.invoke('verify-order', {
+        headers: { Authorization: `Bearer ${token}` },
         body: {
           cart_items: items.map(i => ({ product_id: i.product_id, quantity: i.quantity })),
           delivery_state: selectedAddress.state,
@@ -370,10 +409,34 @@ export default function Checkout() {
         },
       });
 
-      if (verifyError) throw verifyError;
+      if (verifyError) {
+        console.error('Supabase Edge Function error:', verifyError);
+        let errorMsg = 'Order verification failed. Please try again.';
+        try {
+          // FunctionsHttpError has a context with the response
+          const errContext = (verifyError as any)?.context;
+          if (errContext) {
+            const status = errContext.status ? ` (HTTP ${errContext.status})` : '';
+            // Try to read body as JSON
+            let bodyErr: any = null;
+            if (typeof errContext.json === 'function') {
+              bodyErr = await errContext.json().catch(() => null);
+            } else if (errContext.body) {
+              bodyErr = errContext.body;
+            }
+            const msg = bodyErr?.error || bodyErr?.message || errContext.statusText;
+            if (msg) errorMsg = `${String(msg)}${status}`;
+            else errorMsg = `Order verification failed.${status}`;
+          }
+        } catch (_) { /* use default errorMsg */ }
+        setCheckoutError(errorMsg);
+        setLoading(false);
+        return;
+      }
 
       if (!verifyResult?.valid) {
         const errMsgs = verifyResult?.errors?.join(', ') || 'Validation failed';
+        console.warn('Order verification failed:', errMsgs);
         setCheckoutError(errMsgs);
         setLoading(false);
         refetch();
@@ -390,7 +453,7 @@ export default function Checkout() {
       }
     } catch (err: any) {
       console.error('Order verification error:', err);
-      setCheckoutError('Unable to verify your order. Please try again.');
+      setCheckoutError(err.message || 'Unable to verify your order. Please try again.');
       setLoading(false);
       return;
     }
@@ -400,7 +463,7 @@ export default function Checkout() {
       return;
     }
 
-    setLoading(true);
+    // COD / offline flow
     try {
       const order = await createOrder();
       clearCart();

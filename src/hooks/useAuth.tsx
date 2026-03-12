@@ -161,11 +161,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const signInWithGoogle = async () => {
-    const { data, error } = await supabase.auth.signInWithOAuth({
+    const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
         redirectTo: `${window.location.origin}/auth/callback`,
-        skipBrowserRedirect: true,
         queryParams: {
           access_type: 'offline',
           prompt: 'select_account',
@@ -173,40 +172,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       },
     });
 
-    if (error || !data?.url) return { error: error || new Error('No auth URL returned') };
-
-    // Open Google login in a centered popup
-    const width = 500;
-    const height = 600;
-    const left = window.screenX + (window.innerWidth - width) / 2;
-    const top = window.screenY + (window.innerHeight - height) / 2;
-
-    const popup = window.open(
-      data.url,
-      'googleLogin',
-      `width=${width},height=${height},top=${top},left=${left},scrollbars=yes`
-    );
-
-    if (!popup) return { error: new Error('Popup blocked. Please allow popups for this site.') };
-
-    // Poll until popup closes — session is picked up by onAuthStateChange
-    // Use try/catch to handle COOP restrictions on popup.closed
-    await new Promise<void>((resolve) => {
-      const timer = setInterval(() => {
-        try {
-          if (popup.closed) {
-            clearInterval(timer);
-            resolve();
-          }
-        } catch {
-          // COOP policy blocks popup.closed access — fall back to timeout
-          clearInterval(timer);
-          resolve();
-        }
-      }, 500);
-    });
-
-    return { error: null };
+    return { error: error || null };
   };
 
   const signUpWithPhone = async (phone: string, fullName: string) => {
