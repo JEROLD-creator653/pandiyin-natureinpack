@@ -1,3 +1,8 @@
+import { installThirdPartySafetyPatch } from "./lib/thirdPartySafetyPatch";
+
+// Must run before any third-party scripts (Razorpay, analytics) are loaded
+installThirdPartySafetyPatch();
+
 import { createRoot } from "react-dom/client";
 import App from "./App.tsx";
 import "./index.css";

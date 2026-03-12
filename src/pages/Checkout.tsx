@@ -31,6 +31,20 @@ declare global {
 
 // Razorpay key is fetched from the server — never hardcode secrets or keys in frontend
 
+const loadRazorpayScript = (): Promise<void> => {
+  return new Promise((resolve, reject) => {
+    if (window.Razorpay) {
+      resolve();
+      return;
+    }
+    const script = document.createElement('script');
+    script.src = 'https://checkout.razorpay.com/v1/checkout.js';
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error('Failed to load payment gateway'));
+    document.body.appendChild(script);
+  });
+};
+
 const getGSTType = (state: string): 'cgst_sgst' | 'igst' => {
   const sameStateStates = ['Tamil Nadu', 'Puducherry'];
   return sameStateStates.includes(state) ? 'cgst_sgst' : 'igst';
@@ -239,7 +253,9 @@ export default function Checkout() {
 
   const handleRazorpayPayment = async () => {
     setCheckoutError(null);
-    if (!window.Razorpay) {
+    try {
+      await loadRazorpayScript();
+    } catch {
       setCheckoutError('Payment gateway not loaded. Please refresh the page and try again.');
       setLoading(false);
       return;
